@@ -16,6 +16,18 @@
     <p class="subtitle">International Islamic School Malaysia (Secondary)</p>
   </header>
 
+  <div class="mode-toggle" role="tablist">
+    <button class="mode-btn active" id="modeSheetBtn" type="button" role="tab" aria-selected="true">
+      Load &amp; Save (from Sheet)
+    </button>
+    <button class="mode-btn" id="modeQuickBtn" type="button" role="tab" aria-selected="false">
+      Quick Fill (no save — anyone can use)
+    </button>
+  </div>
+  <p class="mode-hint" id="modeHint">
+    This mode reads your Google Sheet's lookup tabs and can save new entries back to it.
+  </p>
+
   <section class="controls">
     <div class="controls-grid">
 
@@ -26,22 +38,37 @@
       <div class="field">
         <label for="subjectSelect">Subject</label>
         <select id="subjectSelect"><option value="">—</option></select>
+        <input type="text" id="subjectFreeInput" class="hidden" placeholder="Type subject">
       </div>
       <div class="field">
         <label for="teacherSelect">Teacher</label>
         <select id="teacherSelect"><option value="">—</option></select>
+        <input type="text" id="teacherFreeInput" class="hidden" placeholder="Type teacher name">
       </div>
       <div class="field">
         <label for="coordinatorSelect">Coordinator</label>
         <select id="coordinatorSelect"><option value="">—</option></select>
+        <input type="text" id="coordinatorFreeInput" class="hidden" placeholder="Type coordinator name">
       </div>
       <div class="field">
         <label for="classSelect">Class</label>
         <select id="classSelect"><option value="">—</option></select>
+        <input type="text" id="classFreeInput" class="hidden" placeholder="Type class, e.g. 10 Razi">
       </div>
       <div class="field">
         <label for="weekSelect">Week (1–25)</label>
         <select id="weekSelect"><option value="">—</option></select>
+        <input type="text" id="weekFreeInput" class="hidden" placeholder="Type week number">
+      </div>
+
+      <div class="field field-wide hidden" id="weekStartField">
+        <label for="weekStartFreeInput">Week start date (Monday)</label>
+        <input type="date" id="weekStartFreeInput">
+      </div>
+
+      <div class="field field-wide">
+        <label for="daysFreeInput">Teaching days <span class="hint">comma-separated, e.g. Monday, Wednesday, Friday</span></label>
+        <input type="text" id="daysFreeInput" placeholder="Monday, Wednesday, Friday">
       </div>
 
       <div class="field field-wide">
@@ -61,13 +88,15 @@
       </div>
 
       <div class="field field-wide">
-        <label>Resources <span class="hint">(select all that apply)</span></label>
+        <label>Resources <span class="hint">(select all that apply, or type below)</span></label>
         <div class="picker-box" id="resourcesPicker"></div>
+        <textarea id="resourcesFreeTextarea" class="hidden" rows="2" placeholder="Type resources, one per line"></textarea>
       </div>
 
       <div class="field field-wide">
-        <label>Assessments <span class="hint">(select all that apply)</span></label>
+        <label>Assessments <span class="hint">(select all that apply, or type below)</span></label>
         <div class="picker-box" id="assessmentsPicker"></div>
+        <textarea id="assessmentsFreeTextarea" class="hidden" rows="2" placeholder="Type assessments, one per line"></textarea>
       </div>
 
     </div>

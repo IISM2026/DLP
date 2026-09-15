@@ -23,6 +23,34 @@ body{
 .app-header h1{margin:0 0 2px; font-size:22px;}
 .app-header .subtitle{margin:0 0 20px; color:#555; font-size:13px;}
 
+/* ===== Mode toggle ===== */
+.mode-toggle{
+  display:flex;
+  gap:8px;
+  margin-bottom:6px;
+}
+.mode-btn{
+  padding:10px 16px;
+  border:1px solid #d8dce1;
+  background:#fff;
+  color:#555;
+  border-radius:8px 8px 0 0;
+  font-size:13px;
+  font-weight:600;
+  cursor:pointer;
+}
+.mode-btn.active{
+  background:var(--gold);
+  color:#1a1a1a;
+  border-color:var(--gold);
+}
+.mode-hint{
+  font-size:12px;
+  color:#666;
+  margin:0 2px 14px;
+  font-style:italic;
+}
+
 .controls{
   background:#fff;
   border:1px solid #d8dce1;
@@ -62,6 +90,7 @@ body{
 
 .field select,
 .field input[type="text"],
+.field input[type="date"],
 .field textarea{
   padding:8px 10px;
   border:1px solid #c6ccd4;
@@ -71,6 +100,8 @@ body{
   font-family:inherit;
   resize:vertical;
 }
+
+.hidden{display:none !important;}
 
 .picker-box{
   border:1px solid #c6ccd4;

@@ -1,97 +1,64 @@
-# DLP Generator — Multi-Tab Setup Guide
+# DLP Generator — Two Modes
 
-This version splits your spreadsheet into a main `Lessons` tab plus dedicated lookup tabs for Subjects, Teachers, Classes, Coordinators, Weeks (pre-filled 1–25 with dates), Resources, and Assessments. You now only type **Topic, Objectives, and Activities** by hand — everything else is picked from a dropdown, checkbox list, or pre-filled table. New topics you type are automatically saved back into the `Topics` tab so they show up as suggestions next time.
+The page now has a mode toggle at the top:
+
+- **Load & Save (from Sheet)** — your original workflow. Reads all lookup tabs (Subjects, Teachers, Classes, Coordinators, Weeks, Resources, Assessments, Topics) from Google Sheets, offers dropdowns/checkboxes, and can save a new entry back into the `Lessons` tab.
+- **Quick Fill (no save)** — anyone opens the same page and types Subject, Teacher, Coordinator, Class, Week, Week start date, Days, Topic, Objectives, Activities, Resources, and Assessments directly, with **no Google Sheet required at all**. They click Preview, then Download PDF or PNG. Nothing is written anywhere — this mode never touches your sheet.
+
+Both modes render through the exact same fixed-size table and the same PDF/PNG export, so output always looks identical regardless of which mode was used to fill it in.
 
 ## Files
 
-- `index.html` – page structure and form controls
-- `style.css` – styling for the form and the fixed-size DLP table
-- `app.js` – reads all tabs, drives the form, renders the preview, exports PDF/PNG, saves new entries
-- `apps_script.gs` – paste this into Google Apps Script; it's what lets the app write back to your sheet
+- `index.html` – page structure, mode toggle, and both sets of form controls
+- `style.css` – styling, including the mode toggle and hidden/shown field pairs
+- `app.js` – mode-switching logic, sheet fetch, form handling, preview rendering, PDF/PNG export, save-to-sheet
+- `apps_script.gs` – Apps Script Web App used only by Load & Save mode's Save button
 - `logo.png` – you add this (school crest)
 
-## 1. Create the tabs in your spreadsheet
+## How the mode switch works
 
-Inside your existing spreadsheet (`19gLRGZRoe8mwS0Mlvp58fKmzGibAEsNCXFT2Cj_wMFA`), create these tabs with these exact headers in row 1:
+Every field that has a sheet-backed dropdown (Subject, Teacher, Coordinator, Class, Week, Resources, Assessments) has a matching free-text input hidden right underneath it. Switching to **Quick Fill** hides the dropdown and reveals the free-text version (or, if the sheet failed to load even in Sheet mode, the free-text fallback appears automatically so the page is never stuck unusable).
 
-**Lessons** (main data — one row per topic entry, this is what grows over the year)
-`Semester | Subject | Teacher | Coordinator | Week | Class | Days | Topic | Objectives | Activities | Resources | Assessments`
+Topic, Objectives, and Activities are always free-text — those were already meant to be typed by hand.
 
-**Subjects** — single column: `Subject`
-**Teachers** — single column: `Teacher`
-**Classes** — single column: `Class`
-**Coordinators** — single column: `Coordinator`
-**Resources** — single column: `ResourceLabel`
-**Assessments** — single column: `AssessmentLabel`
-**Topics** — single column: `Topic` (start empty or seed with known topics; the app appends to this automatically)
+A **Week start date** picker and a **Teaching days** field only make sense in Quick Fill, since Sheet mode already computes both automatically from the `Weeks` and `Lessons` tabs. In Quick Fill, whoever fills the form picks the Monday date directly and types their days (e.g. `Monday, Wednesday, Friday`), and the app calculates each day's actual date the same way as before.
 
-**Weeks** — pre-filled table, two columns: `Week | WeekStartDate`
-Fill in rows 1–25 once, e.g.:
+## Setting up Load & Save mode (unchanged from before)
 
-| Week | WeekStartDate |
-|---|---|
-| 1 | 2026-08-17 |
-| 2 | 2026-08-24 |
-| 3 | 2026-08-31 |
-| … | … |
-| 25 | (your term's last week's Monday) |
+If you haven't done this part yet:
 
-Because `WeekStartDate` is a lookup now, you set each Monday date **once for the whole year**, not per subject/class — every subject and teacher shares the same week calendar.
+1. Create the `Lessons`, `Subjects`, `Teachers`, `Classes`, `Coordinators`, `Weeks`, `Resources`, `Assessments`, and `Topics` tabs as described in the multi-tab setup.
+2. Share the sheet as **Anyone with the link — Viewer**.
+3. Collect each tab's `gid` and paste into the `GIDS` object in `app.js`.
+4. Deploy `apps_script.gs` as a Web App (see the previous README section, unchanged) and paste the URL into `APPS_SCRIPT_URL`.
 
-Notes on `Days` in `Lessons`: this stores your teaching days for that Class+Subject combo (e.g. `Monday, Wednesday, Friday`). The app auto-detects a Class+Subject's usual days from any previous row and reuses them, so you rarely need to touch this — but you can still adjust it in the sheet directly for holiday weeks.
+If the sheet is unreachable or not yet configured, Load & Save mode will show free-text fallbacks automatically (identical to Quick Fill) so the page still works — you'll just see a status message noting the sheet couldn't be loaded.
 
-## 2. Share the sheet
+## Sharing Quick Fill mode with other teachers
 
-**Share → General access → Anyone with the link → Viewer.** This must stay on for the app's read side to work, exactly as before.
+Since Quick Fill needs no sheet access and no Apps Script, you can host `index.html` + `style.css` + `app.js` + `logo.png` on GitHub Pages (or any static host) and hand out the link to any teacher. They:
 
-## 3. Find each tab's GID
+1. Open the page.
+2. Click **Quick Fill (no save)** — it's worth setting this as the default tab if most visitors are other teachers rather than you managing the master sheet. To do that, change the last two lines of `app.js` from:
+   ```js
+   setMode("sheet");
+   loadAll();
+   ```
+   to:
+   ```js
+   setMode("quick");
+   loadAll();
+   ```
+   This still loads the sheet quietly in the background (so if you personally switch to Sheet mode, it's ready), but visitors land on Quick Fill by default.
+3. Fill in Semester, Subject, Teacher, Coordinator, Class, Week, Week start date, Days, Topic, Objectives, Activities, Resources, Assessments.
+4. Click **Preview**, then **Download PDF** or **Download PNG**.
 
-Click each tab in your browser and copy the number after `#gid=` in the URL. Then in `app.js`, fill in the `GIDS` object:
+No login, no sheet permissions, and no risk of someone else overwriting your `Lessons` data — Quick Fill mode simply never calls the save endpoint.
 
-```js
-const GIDS = {
-  Lessons: "0",
-  Subjects: "123456789",
-  Teachers: "234567890",
-  Classes: "345678901",
-  Coordinators: "456789012",
-  Weeks: "567890123",
-  Resources: "678901234",
-  Assessments: "789012345",
-  Topics: "890123456"
-};
-```
+## Notes on Resources/Assessments in Quick Fill
 
-## 4. Deploy the Apps Script (enables auto-saving new Topics)
+Since there's no lookup tab to select from in Quick Fill, these become plain textareas — one resource or assessment per line, same convention as Objectives/Activities. If the sheet did load successfully even while in Quick Fill, you could optionally re-enable the checkbox pickers instead of the textareas by adjusting the visibility rule in `setMode()` inside `app.js` — currently it defaults to always showing textareas in Quick Fill for simplicity and to guarantee the mode never depends on the sheet.
 
-Plain sheet reads (`gviz`) are read-only — to let the app append a new Lessons row and auto-grow the Topics list, it needs a tiny Apps Script Web App as a write endpoint.
+## Everything else
 
-1. Open your Google Sheet → **Extensions → Apps Script**.
-2. Delete the placeholder code, paste in the contents of `apps_script.gs`.
-3. Click **Deploy → New deployment**.
-4. Type: **Web app**. Execute as: **Me**. Who has access: **Anyone**.
-5. Click **Deploy**, and approve the permission prompts (this is your own script acting on your own sheet).
-6. Copy the **Web app URL** it gives you — looks like `https://script.google.com/macros/s/AKfycb.../exec`.
-7. Paste that URL into `APPS_SCRIPT_URL` in `app.js`.
-
-If you skip this step, everything still works except the **Save Entry to Sheet** button — Preview, PDF, and PNG export all work purely from what's typed into the form, without needing to save anything back to the sheet first.
-
-## 5. Using the generator
-
-1. Pick **Semester, Subject, Teacher, Coordinator, Class, Week** from dropdowns — these are now flat lookup lists, not cascading, since each is independent metadata.
-2. Type or pick a **Topic** — start typing and existing topics from the `Topics` tab autocomplete via the built-in browser suggestion list.
-3. Type **Objectives** and **Activities**, one line per point (each line becomes a bullet in the final table).
-4. Tick the relevant **Resources** and **Assessments** checkboxes — as many as apply.
-5. Click **Preview** — the fixed-size table renders with dates auto-calculated from the `Weeks` tab and the Class's usual teaching days.
-6. Click **Save Entry to Sheet** to append this as a new row in `Lessons` and register any brand-new topic into `Topics` for future reuse.
-7. Click **Download PDF** or **Download PNG** to export.
-
-## Why this structure
-
-Storing Subjects/Teachers/Classes/Coordinators/Resources/Assessments in their own tabs means you edit each list in exactly one place. Renaming a resource, or fixing a teacher's name spelling, updates instantly everywhere it's used, instead of requiring a find-and-replace across a growing `Lessons` history. The `Weeks` tab means the entire term's date calendar is set once, not duplicated per subject.
-
-## Extending later
-
-- Add a `Homework` or `Notes` tab/column the same way — add the header, add it to `COLS`/`LOOKUPS` handling in `app.js`, add a form field in `index.html`.
-- If you want Resources/Assessments checkboxes to also support "type a new one," add a small text input beside each picker that calls the same `saveEntry`-style Apps Script pattern to append to those tabs too.
-- If multiple teachers will use this generator, consider locking the Teacher dropdown to a value from a login/session instead of a free dropdown, to avoid mix-ups.
+Preview rendering, the fixed-size fixed-height table cells, the separate `logo.png` layer, and PDF/PNG export via `html2canvas`/`jsPDF` are unchanged and shared by both modes.

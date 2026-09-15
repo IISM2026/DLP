@@ -1,31 +1,24 @@
 /* ============================================================
-   DLP Generator — app.js  (multi-tab lookup version)
+   DLP Generator — app.js  (Sheet mode + Quick Fill mode)
    ------------------------------------------------------------
-   TABS EXPECTED IN THE SPREADSHEET:
-     Lessons      – Semester, Subject, Teacher, Coordinator, Week,
-                    Class, Topic, Objectives, Activities,
-                    Resources, Assessments
-                    (Resources/Assessments store comma-separated
-                     LABELS chosen from the Resources/Assessments tabs)
-     Subjects     – Subject
-     Teachers     – Teacher
-     Classes      – Class
-     Coordinators – Coordinator
-     Weeks        – Week, WeekStartDate   (pre-filled 1-25, each Monday)
-     Resources    – ResourceLabel
-     Assessments  – AssessmentLabel
-     Topics       – Topic   (auto-grows: every new topic typed gets
-                             appended here so it's reusable later)
-   ------------------------------------------------------------
-   WRITE-BACK (auto-saving new Topics) requires a small Google
-   Apps Script Web App, since plain gviz reads are read-only.
-   See APPS_SCRIPT_URL below and the README for the deploy steps.
+   TWO MODES:
+   1. "sheet"  — reads all lookup tabs from Google Sheets, offers
+                 dropdowns, and can save new entries back via the
+                 Apps Script Web App (see apps_script.gs).
+   2. "quick"  — no sheet dependency required to fill the form.
+                 Any teacher can open the page and type Topic,
+                 Objectives, Activities, Days, and free-text
+                 Subject/Teacher/Coordinator/Class/Week/Resources/
+                 Assessments directly. Nothing is saved anywhere;
+                 only Preview + PDF/PNG export are available.
+                 (If the sheet loads successfully, quick mode still
+                 offers the lookup lists as convenience dropdowns —
+                 but works fine even if the sheet is unreachable.)
    ============================================================ */
 
 // ---- 1. CONFIGURE THESE ----
 const SHEET_ID = "19gLRGZRoe8mwS0Mlvp58fKmzGibAEsNCXFT2Cj_wMFA";
 
-// gid for each tab — open each tab in the browser and copy the number after #gid=
 const GIDS = {
   Lessons: "0",
   Subjects: "PASTE_GID",
@@ -38,7 +31,6 @@ const GIDS = {
   Topics: "PASTE_GID"
 };
 
-// Apps Script Web App URL (for appending new Topics back to the sheet)
 const APPS_SCRIPT_URL = "PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE";
 
 const gvizUrl = (gid) =>
@@ -47,24 +39,43 @@ const gvizUrl = (gid) =>
 // ---------------------------------------------------------------
 // State
 // ---------------------------------------------------------------
+let MODE = "sheet"; // "sheet" | "quick"
+let SHEET_READY = false;
 let LESSONS = [];
 let LOOKUPS = { Subjects: [], Teachers: [], Classes: [], Coordinators: [], Weeks: [], Resources: [], Assessments: [], Topics: [] };
 
 const el = (id) => document.getElementById(id);
 const statusMsg = el("statusMsg");
 
+const modeSheetBtn = el("modeSheetBtn");
+const modeQuickBtn = el("modeQuickBtn");
+const modeHint = el("modeHint");
+
 const semesterSelect = el("semesterSelect");
+
 const subjectSelect = el("subjectSelect");
+const subjectFreeInput = el("subjectFreeInput");
 const teacherSelect = el("teacherSelect");
+const teacherFreeInput = el("teacherFreeInput");
 const coordinatorSelect = el("coordinatorSelect");
+const coordinatorFreeInput = el("coordinatorFreeInput");
 const classSelect = el("classSelect");
+const classFreeInput = el("classFreeInput");
 const weekSelect = el("weekSelect");
+const weekFreeInput = el("weekFreeInput");
+const weekStartField = el("weekStartField");
+const weekStartFreeInput = el("weekStartFreeInput");
+const daysFreeInput = el("daysFreeInput");
+
 const topicInput = el("topicInput");
 const topicDatalist = el("topicDatalist");
 const objectivesInput = el("objectivesInput");
 const activitiesInput = el("activitiesInput");
+
 const resourcesPicker = el("resourcesPicker");
+const resourcesFreeTextarea = el("resourcesFreeTextarea");
 const assessmentsPicker = el("assessmentsPicker");
+const assessmentsFreeTextarea = el("assessmentsFreeTextarea");
 
 const previewBtn = el("previewBtn");
 const pdfBtn = el("pdfBtn");
@@ -73,7 +84,53 @@ const reloadBtn = el("reloadBtn");
 const saveEntryBtn = el("saveEntryBtn");
 
 // ---------------------------------------------------------------
-// Fetch helpers
+// Mode switching
+// ---------------------------------------------------------------
+function setMode(newMode) {
+  MODE = newMode;
+  const isQuick = MODE === "quick";
+
+  modeSheetBtn.classList.toggle("active", !isQuick);
+  modeQuickBtn.classList.toggle("active", isQuick);
+  modeSheetBtn.setAttribute("aria-selected", String(!isQuick));
+  modeQuickBtn.setAttribute("aria-selected", String(isQuick));
+
+  modeHint.textContent = isQuick
+    ? "Quick Fill: type everything directly. Nothing is saved to the sheet — Preview and PDF/PNG export only."
+    : "Load & Save: pick from your Google Sheet's lookup tabs. New entries can be saved back to the sheet.";
+
+  // swap dropdown <-> free text input pairs
+  toggleFreePair(subjectSelect, subjectFreeInput, isQuick && !SHEET_READY);
+  toggleFreePair(teacherSelect, teacherFreeInput, isQuick);
+  toggleFreePair(coordinatorSelect, coordinatorFreeInput, isQuick);
+  toggleFreePair(classSelect, classFreeInput, isQuick);
+  toggleFreePair(weekSelect, weekFreeInput, isQuick && !SHEET_READY);
+
+  weekStartField.classList.toggle("hidden", !isQuick);
+  daysFreeInput.parentElement.classList.remove("hidden"); // always visible, useful in both modes
+
+  resourcesPicker.classList.toggle("hidden", isQuick && !SHEET_READY);
+  resourcesFreeTextarea.classList.toggle("hidden", !(isQuick));
+  assessmentsPicker.classList.toggle("hidden", isQuick && !SHEET_READY);
+  assessmentsFreeTextarea.classList.toggle("hidden", !(isQuick));
+
+  saveEntryBtn.classList.toggle("hidden", isQuick);
+  saveEntryBtn.disabled = true;
+
+  pdfBtn.disabled = true;
+  pngBtn.disabled = true;
+}
+
+function toggleFreePair(selectEl, freeInputEl, showFreeInput) {
+  selectEl.classList.toggle("hidden", showFreeInput);
+  freeInputEl.classList.toggle("hidden", !showFreeInput);
+}
+
+modeSheetBtn.addEventListener("click", () => setMode("sheet"));
+modeQuickBtn.addEventListener("click", () => setMode("quick"));
+
+// ---------------------------------------------------------------
+// Fetch helpers (Sheet mode)
 // ---------------------------------------------------------------
 function extractGvizJson(text) {
   const start = text.indexOf("{");
@@ -103,11 +160,11 @@ async function fetchTab(gid) {
 }
 
 // ---------------------------------------------------------------
-// Load everything
+// Load everything from the sheet. If this fails, Quick Fill mode
+// still works fully using free-text inputs.
 // ---------------------------------------------------------------
 async function loadAll() {
   statusMsg.textContent = "Connecting to Google Sheet…";
-  setControlsDisabled(true);
   try {
     const [lessons, subjects, teachers, classes, coordinators, weeks, resources, assessments, topics] =
       await Promise.all([
@@ -127,31 +184,26 @@ async function loadAll() {
     LOOKUPS.Teachers = teachers.map((r) => r.Teacher).filter(Boolean);
     LOOKUPS.Classes = classes.map((r) => r.Class).filter(Boolean);
     LOOKUPS.Coordinators = coordinators.map((r) => r.Coordinator).filter(Boolean);
-    LOOKUPS.Weeks = weeks; // keep full rows: {Week, WeekStartDate}
+    LOOKUPS.Weeks = weeks;
     LOOKUPS.Resources = resources.map((r) => r.ResourceLabel).filter(Boolean);
     LOOKUPS.Assessments = assessments.map((r) => r.AssessmentLabel).filter(Boolean);
     LOOKUPS.Topics = topics.map((r) => r.Topic).filter(Boolean);
 
+    SHEET_READY = true;
     populateStaticDropdowns();
-    statusMsg.textContent = `Loaded ${LESSONS.length} lesson row(s) and all lookup tabs.`;
-    setControlsDisabled(false);
+    statusMsg.textContent = `Loaded ${LESSONS.length} lesson row(s) and all lookup tabs. Both modes are ready.`;
   } catch (err) {
     console.error(err);
+    SHEET_READY = false;
+    fillSelect(semesterSelect, ["Semester 1", "Semester 2"], "Select semester");
     statusMsg.textContent =
-      "Could not load the sheet or one of its tabs. Check SHEET_ID, each tab's GID, and sharing permissions.";
+      "Could not load the sheet — Quick Fill mode still works using typed input. (Load & Save mode needs the sheet to be reachable.)";
   }
-}
-
-function setControlsDisabled(disabled) {
-  [
-    semesterSelect, subjectSelect, teacherSelect, coordinatorSelect,
-    classSelect, weekSelect, topicInput, objectivesInput, activitiesInput
-  ].forEach((s) => (s.disabled = disabled));
+  setMode(MODE); // re-apply visibility rules now that SHEET_READY is known
 }
 
 // ---------------------------------------------------------------
-// Populate all dropdowns from lookup tabs (independent, no cascade needed
-// since Subjects/Teachers/Classes/Coordinators are now flat lookup lists)
+// Populate dropdowns from lookup tabs
 // ---------------------------------------------------------------
 function fillSelect(selectEl, values, placeholder) {
   selectEl.innerHTML = `<option value="">${placeholder}</option>`;
@@ -182,7 +234,6 @@ function populateStaticDropdowns() {
   renderPicker(assessmentsPicker, LOOKUPS.Assessments, "assess");
 }
 
-// Checkbox-list picker for multi-select Resources / Assessments
 function renderPicker(container, items, prefix) {
   container.innerHTML = items
     .map((label, i) => {
@@ -201,7 +252,7 @@ function getCheckedValues(container) {
 }
 
 // ---------------------------------------------------------------
-// Date helpers — WeekStartDate now comes from the Weeks lookup tab
+// Date helpers
 // ---------------------------------------------------------------
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -254,11 +305,6 @@ function extractSemesterNumber(semStr) {
   return m ? m[0] : semStr;
 }
 
-// ---------------------------------------------------------------
-// Days for the selected class+subject: look them up from an existing
-// Lessons row if one exists for that Class, else default to Mon/Wed/Fri.
-// You can still hand-edit day names/dates after preview.
-// ---------------------------------------------------------------
 function defaultDaysFor(cls, subj) {
   const existing = LESSONS.find(
     (r) => String(r.Class).trim() === cls && String(r.Subject).trim() === subj && r.Days
@@ -268,24 +314,57 @@ function defaultDaysFor(cls, subj) {
 }
 
 // ---------------------------------------------------------------
-// Preview rendering
+// Reading the form — merges dropdown or free-text depending on mode
 // ---------------------------------------------------------------
+function valueOrFree(selectEl, freeInputEl) {
+  return freeInputEl.classList.contains("hidden") ? selectEl.value : freeInputEl.value.trim();
+}
+
 function currentForm() {
+  const isQuick = MODE === "quick";
+
+  let week, weekStart, days;
+  if (isQuick) {
+    week = weekFreeInput.classList.contains("hidden") ? weekSelect.value : weekFreeInput.value.trim();
+    weekStart = weekStartFreeInput.value ? new Date(weekStartFreeInput.value) : null;
+    days = daysFreeInput.value.trim()
+      ? splitToItems(daysFreeInput.value.replace(/,/g, "\n"))
+      : ["Monday", "Wednesday", "Friday"];
+  } else {
+    week = weekSelect.value;
+    weekStart = getWeekStartDate(week);
+    days = null; // resolved later via defaultDaysFor, unless overridden
+    if (daysFreeInput.value.trim()) days = splitToItems(daysFreeInput.value.replace(/,/g, "\n"));
+  }
+
+  const resources = isQuick
+    ? splitToItems(resourcesFreeTextarea.value)
+    : (getCheckedValues(resourcesPicker).length ? getCheckedValues(resourcesPicker) : splitToItems(resourcesFreeTextarea.value));
+
+  const assessments = isQuick
+    ? splitToItems(assessmentsFreeTextarea.value)
+    : (getCheckedValues(assessmentsPicker).length ? getCheckedValues(assessmentsPicker) : splitToItems(assessmentsFreeTextarea.value));
+
   return {
     semester: semesterSelect.value,
-    subject: subjectSelect.value,
-    teacher: teacherSelect.value,
-    coordinator: coordinatorSelect.value,
-    cls: classSelect.value,
-    week: weekSelect.value,
+    subject: valueOrFree(subjectSelect, subjectFreeInput),
+    teacher: valueOrFree(teacherSelect, teacherFreeInput),
+    coordinator: valueOrFree(coordinatorSelect, coordinatorFreeInput),
+    cls: valueOrFree(classSelect, classFreeInput),
+    week,
+    weekStart,
+    days,
     topic: topicInput.value.trim(),
     objectives: objectivesInput.value,
     activities: activitiesInput.value,
-    resources: getCheckedValues(resourcesPicker),
-    assessments: getCheckedValues(assessmentsPicker)
+    resources,
+    assessments
   };
 }
 
+// ---------------------------------------------------------------
+// Preview rendering
+// ---------------------------------------------------------------
 function renderPreview() {
   const f = currentForm();
   if (!f.semester || !f.subject || !f.teacher || !f.cls || !f.week || !f.topic) {
@@ -300,8 +379,8 @@ function renderPreview() {
   el("signTeacher").textContent = f.teacher || "Teacher Name";
   el("signCoordinator").textContent = f.coordinator || "Coordinator";
 
-  const weekStart = getWeekStartDate(f.week);
-  const days = defaultDaysFor(f.cls, f.subject);
+  const weekStart = f.weekStart || getWeekStartDate(f.week);
+  const days = f.days || defaultDaysFor(f.cls, f.subject);
 
   const objectives = splitToItems(f.objectives);
   const activities = splitToItems(f.activities);
@@ -310,10 +389,13 @@ function renderPreview() {
     days, weekStart, f.topic, objectives, activities, f.resources, f.assessments
   );
 
-  statusMsg.textContent = "Preview generated. You can now download as PDF or PNG, or save this entry to the sheet.";
+  const canSave = MODE === "sheet" && SHEET_READY;
+  statusMsg.textContent = canSave
+    ? "Preview generated. Download PDF/PNG, or save this entry to the sheet."
+    : "Preview generated. Download as PDF or PNG.";
   pdfBtn.disabled = false;
   pngBtn.disabled = false;
-  saveEntryBtn.disabled = false;
+  saveEntryBtn.disabled = !canSave;
 }
 
 function buildMergedRows(days, weekStart, topic, objectives, activities, resources, assessments) {
@@ -339,7 +421,7 @@ function buildMergedRows(days, weekStart, topic, objectives, activities, resourc
 }
 
 // ---------------------------------------------------------------
-// Export — PDF and PNG via html2canvas
+// Export — PDF and PNG via html2canvas (works identically in both modes)
 // ---------------------------------------------------------------
 async function captureCanvas() {
   return await html2canvas(el("dlpTable"), { scale: 2.5, backgroundColor: "#ffffff" });
@@ -377,10 +459,13 @@ function buildFileName(ext) {
 }
 
 // ---------------------------------------------------------------
-// Save entry back to the sheet (Lessons row) + auto-append new Topic
-// Requires APPS_SCRIPT_URL to be configured — see README.
+// Save entry back to the sheet — only available in Sheet mode
 // ---------------------------------------------------------------
 async function saveEntry() {
+  if (MODE !== "sheet" || !SHEET_READY) {
+    statusMsg.textContent = "Saving is only available in Load & Save mode with the sheet connected.";
+    return;
+  }
   const f = currentForm();
   if (!f.semester || !f.subject || !f.teacher || !f.cls || !f.week || !f.topic) {
     statusMsg.textContent = "Fill in the form and click Preview before saving.";
@@ -391,7 +476,7 @@ async function saveEntry() {
     return;
   }
 
-  const days = defaultDaysFor(f.cls, f.subject);
+  const days = f.days || defaultDaysFor(f.cls, f.subject);
   const payload = {
     Semester: f.semester,
     Subject: f.subject,
@@ -433,4 +518,5 @@ pngBtn.addEventListener("click", exportPng);
 reloadBtn.addEventListener("click", loadAll);
 saveEntryBtn.addEventListener("click", saveEntry);
 
+setMode("sheet");
 loadAll();
