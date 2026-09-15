@@ -6,7 +6,7 @@
    ============================================================ */
 
 // ---- 1. CONFIGURE THESE TWO VALUES ----
-const SHEET_ID = "PASTE_YOUR_SHEET_ID_HERE";
+const SHEET_ID = "19gLRGZRoe8mwS0Mlvp58fKmzGibAEsNCXFT2Cj_wMFA";
 const GID = "0"; // tab/sheet gid, "0" = first tab
 
 const SHEET_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&gid=${GID}`;
