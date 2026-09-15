@@ -3,6 +3,10 @@
    Reads a published Google Sheet, drives cascading dropdowns,
    computes per-day dates for the selected week, and exports
    the rendered table as PDF or PNG.
+
+   Sheet column order (headers must match row 1 exactly):
+   Semester | Subject | Teacher | Coordinator | Week | WeekStartDate |
+   Class | Days | Topic | Objectives | Activities | Resources | Assessments
    ============================================================ */
 
 // ---- 1. CONFIGURE THESE TWO VALUES ----
@@ -11,21 +15,21 @@ const GID = "0"; // tab/sheet gid, "0" = first tab
 
 const SHEET_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&gid=${GID}`;
 
-// Expected column headers in row 1 of the sheet (case-insensitive match)
+// Column headers — matched by name, so sheet column ORDER does not matter.
 const COLS = {
   semester: "Semester",
   subject: "Subject",
-  class: "Class",
   teacher: "Teacher",
+  coordinator: "Coordinator",
   week: "Week",
   weekStart: "WeekStartDate",
+  class: "Class",
   days: "Days",
   topic: "Topic",
   objectives: "Objectives",
   activities: "Activities",
   resources: "Resources",
-  assessments: "Assessments",
-  coordinator: "Coordinator"
+  assessments: "Assessments"
 };
 
 let RECORDS = []; // parsed sheet rows as objects
@@ -35,6 +39,7 @@ const statusMsg = el("statusMsg");
 
 const semesterSelect = el("semesterSelect");
 const subjectSelect = el("subjectSelect");
+const teacherSelect = el("teacherSelect");
 const classSelect = el("classSelect");
 const weekSelect = el("weekSelect");
 const topicSelect = el("topicSelect");
@@ -91,13 +96,15 @@ function gvizToRecords(json) {
 }
 
 function setSelectDisabled(disabled) {
-  [semesterSelect, subjectSelect, classSelect, weekSelect, topicSelect].forEach(
+  [semesterSelect, subjectSelect, teacherSelect, classSelect, weekSelect, topicSelect].forEach(
     (s) => (s.disabled = disabled)
   );
 }
 
 // ---------------------------------------------------------------
 // Cascading dropdown population
+// Chain follows the sheet's logical order:
+// Semester -> Subject -> Teacher -> Class -> Week -> Topic
 // ---------------------------------------------------------------
 function uniqueValues(records, key) {
   return [...new Set(records.map((r) => String(r[key] ?? "").trim()).filter(Boolean))];
@@ -115,32 +122,44 @@ function fillSelect(selectEl, values, placeholder) {
 
 function populateSemesters() {
   fillSelect(semesterSelect, uniqueValues(RECORDS, COLS.semester), "Select semester");
-  clearDownstream(["subject", "class", "week", "topic"]);
+  clearDownstream(["subject", "teacher", "class", "week", "topic"]);
 }
 
 function populateSubjects() {
   const sem = semesterSelect.value;
   const filtered = RECORDS.filter((r) => String(r[COLS.semester]).trim() === sem);
   fillSelect(subjectSelect, uniqueValues(filtered, COLS.subject), "Select subject");
+  clearDownstream(["teacher", "class", "week", "topic"]);
+}
+
+function populateTeachers() {
+  const { sem, subj } = currentFilters();
+  const filtered = RECORDS.filter(
+    (r) => String(r[COLS.semester]).trim() === sem && String(r[COLS.subject]).trim() === subj
+  );
+  fillSelect(teacherSelect, uniqueValues(filtered, COLS.teacher), "Select teacher");
   clearDownstream(["class", "week", "topic"]);
 }
 
 function populateClasses() {
-  const sem = semesterSelect.value;
-  const subj = subjectSelect.value;
+  const { sem, subj, teacher } = currentFilters();
   const filtered = RECORDS.filter(
-    (r) => String(r[COLS.semester]).trim() === sem && String(r[COLS.subject]).trim() === subj
+    (r) =>
+      String(r[COLS.semester]).trim() === sem &&
+      String(r[COLS.subject]).trim() === subj &&
+      String(r[COLS.teacher]).trim() === teacher
   );
   fillSelect(classSelect, uniqueValues(filtered, COLS.class), "Select class");
   clearDownstream(["week", "topic"]);
 }
 
 function populateWeeks() {
-  const { sem, subj, cls } = currentFilters();
+  const { sem, subj, teacher, cls } = currentFilters();
   const filtered = RECORDS.filter(
     (r) =>
       String(r[COLS.semester]).trim() === sem &&
       String(r[COLS.subject]).trim() === subj &&
+      String(r[COLS.teacher]).trim() === teacher &&
       String(r[COLS.class]).trim() === cls
   );
   const weeks = uniqueValues(filtered, COLS.week).sort((a, b) => Number(a) - Number(b));
@@ -149,11 +168,12 @@ function populateWeeks() {
 }
 
 function populateTopics() {
-  const { sem, subj, cls, week } = currentFilters();
+  const { sem, subj, teacher, cls, week } = currentFilters();
   const filtered = RECORDS.filter(
     (r) =>
       String(r[COLS.semester]).trim() === sem &&
       String(r[COLS.subject]).trim() === subj &&
+      String(r[COLS.teacher]).trim() === teacher &&
       String(r[COLS.class]).trim() === cls &&
       String(r[COLS.week]).trim() === week
   );
@@ -161,7 +181,13 @@ function populateTopics() {
 }
 
 function clearDownstream(fields) {
-  const map = { subject: subjectSelect, class: classSelect, week: weekSelect, topic: topicSelect };
+  const map = {
+    subject: subjectSelect,
+    teacher: teacherSelect,
+    class: classSelect,
+    week: weekSelect,
+    topic: topicSelect
+  };
   fields.forEach((f) => fillSelect(map[f], [], `Select ${f}`));
   pdfBtn.disabled = true;
   pngBtn.disabled = true;
@@ -171,6 +197,7 @@ function currentFilters() {
   return {
     sem: semesterSelect.value,
     subj: subjectSelect.value,
+    teacher: teacherSelect.value,
     cls: classSelect.value,
     week: weekSelect.value,
     topic: topicSelect.value
@@ -232,15 +259,16 @@ function escapeHtml(str) {
 }
 
 function renderPreview() {
-  const { sem, subj, cls, week, topic } = currentFilters();
-  if (!sem || !subj || !cls || !week || !topic) {
-    statusMsg.textContent = "Please select semester, subject, class, week and topic first.";
+  const { sem, subj, teacher, cls, week, topic } = currentFilters();
+  if (!sem || !subj || !teacher || !cls || !week || !topic) {
+    statusMsg.textContent = "Please select semester, subject, teacher, class, week and topic first.";
     return;
   }
   const record = RECORDS.find(
     (r) =>
       String(r[COLS.semester]).trim() === sem &&
       String(r[COLS.subject]).trim() === subj &&
+      String(r[COLS.teacher]).trim() === teacher &&
       String(r[COLS.class]).trim() === cls &&
       String(r[COLS.week]).trim() === week &&
       String(r[COLS.topic]).trim() === topic
@@ -265,33 +293,6 @@ function renderPreview() {
   const resources = splitToItems(record[COLS.resources]);
   const assessments = splitToItems(record[COLS.assessments]);
 
-  const dayRowsHtml = days
-    .map((dayName, idx) => {
-      const dateObj = dateForWeekday(weekStart, dayName);
-      const dateStr = formatDate(dateObj);
-      const isFirst = idx === 0;
-      const cellsForFirstRow = isFirst
-        ? `
-        <td class="merged-cell">${escapeHtml(topic)}</td>
-        <td class="merged-cell">${listOrEmpty(objectives, "No objectives listed.")}</td>
-        <td class="merged-cell">${listOrEmpty(activities, "No activities listed.")}</td>
-        <td class="merged-cell">${listOrEmpty(resources, "No resources listed.")}</td>
-        <td class="merged-cell">${listOrEmpty(assessments, "No assessments listed.")}</td>
-      `
-        : "";
-      return `
-        <tr>
-          <td class="day-cell"><span class="day-name">${escapeHtml(dayName)}</span><span class="day-date">${escapeHtml(dateStr)}</span></td>
-          ${
-            isFirst
-              ? cellsForFirstRow
-              : `<td class="merged-cell" colspan="5" style="height:8px;"></td>`
-          }
-        </tr>`;
-    })
-    .join("");
-
-  // Merge topic/objectives/etc. visually across all day rows using rowspan instead of blank rows
   el("dlpBody").innerHTML = buildMergedRows(days, weekStart, topic, objectives, activities, resources, assessments);
 
   statusMsg.textContent = "Preview generated. You can now download as PDF or PNG.";
@@ -368,10 +369,11 @@ function buildFileName(ext) {
 }
 
 // ---------------------------------------------------------------
-// Event wiring
+// Event wiring — follows Semester -> Subject -> Teacher -> Class -> Week -> Topic
 // ---------------------------------------------------------------
 semesterSelect.addEventListener("change", populateSubjects);
-subjectSelect.addEventListener("change", populateClasses);
+subjectSelect.addEventListener("change", populateTeachers);
+teacherSelect.addEventListener("change", populateClasses);
 classSelect.addEventListener("change", populateWeeks);
 weekSelect.addEventListener("change", populateTopics);
 previewBtn.addEventListener("click", renderPreview);
