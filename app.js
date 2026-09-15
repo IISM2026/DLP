@@ -1,22 +1,22 @@
 /* ============================================================
    DLP Generator — app.js  (Sheet mode + Quick Fill mode)
    ------------------------------------------------------------
+   Lessons tab is simplified to only:
+     Week | Class | Days | Topic | Objectives | Activities | Resources | Assessments
+   Semester / Subject / Teacher / Coordinator are picked from
+   their own lookup tabs each time and are NOT stored per Lessons
+   row — they're attached fresh whenever you fill the form.
+   ------------------------------------------------------------
    TWO MODES:
    1. "sheet"  — reads all lookup tabs from Google Sheets, offers
                  dropdowns, and can save new entries back via the
                  Apps Script Web App (see apps_script.gs).
    2. "quick"  — no sheet dependency required to fill the form.
-                 Any teacher can open the page and type Topic,
-                 Objectives, Activities, Days, and free-text
-                 Subject/Teacher/Coordinator/Class/Week/Resources/
-                 Assessments directly. Nothing is saved anywhere;
-                 only Preview + PDF/PNG export are available.
-                 (If the sheet loads successfully, quick mode still
-                 offers the lookup lists as convenience dropdowns —
-                 but works fine even if the sheet is unreachable.)
+                 Any teacher can open the page and type everything
+                 directly. Nothing is saved; Preview + PDF/PNG only.
    ============================================================ */
 
-// ---- 1. CONFIGURE THESE ----
+// ---- 1. CONFIGURE ----
 const SHEET_ID = "19gLRGZRoe8mwS0Mlvp58fKmzGibAEsNCXFT2Cj_wMFA";
 
 const GIDS = {
@@ -31,7 +31,7 @@ const GIDS = {
   Topics: "960685870"
 };
 
-const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzAAw5pTgqyNdmscAitgRJHkoPnNCmAUIrSkBK_NVTeGD73JdOtojQ8pt70Qq3Uji-mpw/exec";
+const APPS_SCRIPT_URL = "PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE";
 
 const gvizUrl = (gid) =>
   `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&gid=${gid}`;
@@ -99,20 +99,18 @@ function setMode(newMode) {
     ? "Quick Fill: type everything directly. Nothing is saved to the sheet — Preview and PDF/PNG export only."
     : "Load & Save: pick from your Google Sheet's lookup tabs. New entries can be saved back to the sheet.";
 
-  // swap dropdown <-> free text input pairs
   toggleFreePair(subjectSelect, subjectFreeInput, isQuick && !SHEET_READY);
-  toggleFreePair(teacherSelect, teacherFreeInput, isQuick);
-  toggleFreePair(coordinatorSelect, coordinatorFreeInput, isQuick);
-  toggleFreePair(classSelect, classFreeInput, isQuick);
+  toggleFreePair(teacherSelect, teacherFreeInput, isQuick && !SHEET_READY);
+  toggleFreePair(coordinatorSelect, coordinatorFreeInput, isQuick && !SHEET_READY);
+  toggleFreePair(classSelect, classFreeInput, isQuick && !SHEET_READY);
   toggleFreePair(weekSelect, weekFreeInput, isQuick && !SHEET_READY);
 
   weekStartField.classList.toggle("hidden", !isQuick);
-  daysFreeInput.parentElement.classList.remove("hidden"); // always visible, useful in both modes
 
   resourcesPicker.classList.toggle("hidden", isQuick && !SHEET_READY);
-  resourcesFreeTextarea.classList.toggle("hidden", !(isQuick));
+  resourcesFreeTextarea.classList.toggle("hidden", !(isQuick && !SHEET_READY));
   assessmentsPicker.classList.toggle("hidden", isQuick && !SHEET_READY);
-  assessmentsFreeTextarea.classList.toggle("hidden", !(isQuick));
+  assessmentsFreeTextarea.classList.toggle("hidden", !(isQuick && !SHEET_READY));
 
   saveEntryBtn.classList.toggle("hidden", isQuick);
   saveEntryBtn.disabled = true;
@@ -160,8 +158,7 @@ async function fetchTab(gid) {
 }
 
 // ---------------------------------------------------------------
-// Load everything from the sheet. If this fails, Quick Fill mode
-// still works fully using free-text inputs.
+// Load everything from the sheet
 // ---------------------------------------------------------------
 async function loadAll() {
   statusMsg.textContent = "Connecting to Google Sheet…";
@@ -179,12 +176,12 @@ async function loadAll() {
         fetchTab(GIDS.Topics)
       ]);
 
-    LESSONS = lessons;
+    LESSONS = lessons; // Week, Class, Days, Topic, Objectives, Activities, Resources, Assessments
     LOOKUPS.Subjects = subjects.map((r) => r.Subject).filter(Boolean);
     LOOKUPS.Teachers = teachers.map((r) => r.Teacher).filter(Boolean);
     LOOKUPS.Classes = classes.map((r) => r.Class).filter(Boolean);
     LOOKUPS.Coordinators = coordinators.map((r) => r.Coordinator).filter(Boolean);
-    LOOKUPS.Weeks = weeks;
+    LOOKUPS.Weeks = weeks; // {Week, WeekStartDate}
     LOOKUPS.Resources = resources.map((r) => r.ResourceLabel).filter(Boolean);
     LOOKUPS.Assessments = assessments.map((r) => r.AssessmentLabel).filter(Boolean);
     LOOKUPS.Topics = topics.map((r) => r.Topic).filter(Boolean);
@@ -197,9 +194,9 @@ async function loadAll() {
     SHEET_READY = false;
     fillSelect(semesterSelect, ["Semester 1", "Semester 2"], "Select semester");
     statusMsg.textContent =
-      "Could not load the sheet — Quick Fill mode still works using typed input. (Load & Save mode needs the sheet to be reachable.)";
+      "Could not load the sheet — Quick Fill mode still works using typed input. Check GIDS in app.js and sheet sharing.";
   }
-  setMode(MODE); // re-apply visibility rules now that SHEET_READY is known
+  setMode(MODE);
 }
 
 // ---------------------------------------------------------------
@@ -305,16 +302,18 @@ function extractSemesterNumber(semStr) {
   return m ? m[0] : semStr;
 }
 
-function defaultDaysFor(cls, subj) {
+// Lessons is now Week+Class scoped only (no Subject/Teacher stored),
+// so "usual days" lookup matches on Week+Class.
+function defaultDaysFor(week, cls) {
   const existing = LESSONS.find(
-    (r) => String(r.Class).trim() === cls && String(r.Subject).trim() === subj && r.Days
+    (r) => String(r.Week).trim() === String(week).trim() && String(r.Class).trim() === cls && r.Days
   );
   if (existing) return splitToItems(String(existing.Days).replace(/,/g, "\n"));
   return ["Monday", "Wednesday", "Friday"];
 }
 
 // ---------------------------------------------------------------
-// Reading the form — merges dropdown or free-text depending on mode
+// Reading the form
 // ---------------------------------------------------------------
 function valueOrFree(selectEl, freeInputEl) {
   return freeInputEl.classList.contains("hidden") ? selectEl.value : freeInputEl.value.trim();
@@ -324,26 +323,25 @@ function currentForm() {
   const isQuick = MODE === "quick";
 
   let week, weekStart, days;
-  if (isQuick) {
-    week = weekFreeInput.classList.contains("hidden") ? weekSelect.value : weekFreeInput.value.trim();
-    weekStart = weekStartFreeInput.value ? new Date(weekStartFreeInput.value) : null;
-    days = daysFreeInput.value.trim()
-      ? splitToItems(daysFreeInput.value.replace(/,/g, "\n"))
-      : ["Monday", "Wednesday", "Friday"];
+  week = weekFreeInput.classList.contains("hidden") ? weekSelect.value : weekFreeInput.value.trim();
+
+  if (isQuick && weekStartFreeInput.value) {
+    weekStart = new Date(weekStartFreeInput.value);
   } else {
-    week = weekSelect.value;
     weekStart = getWeekStartDate(week);
-    days = null; // resolved later via defaultDaysFor, unless overridden
-    if (daysFreeInput.value.trim()) days = splitToItems(daysFreeInput.value.replace(/,/g, "\n"));
   }
 
-  const resources = isQuick
-    ? splitToItems(resourcesFreeTextarea.value)
-    : (getCheckedValues(resourcesPicker).length ? getCheckedValues(resourcesPicker) : splitToItems(resourcesFreeTextarea.value));
+  if (daysFreeInput.value.trim()) {
+    days = splitToItems(daysFreeInput.value.replace(/,/g, "\n"));
+  } else {
+    days = isQuick ? ["Monday", "Wednesday", "Friday"] : null; // resolved later via defaultDaysFor
+  }
 
-  const assessments = isQuick
-    ? splitToItems(assessmentsFreeTextarea.value)
-    : (getCheckedValues(assessmentsPicker).length ? getCheckedValues(assessmentsPicker) : splitToItems(assessmentsFreeTextarea.value));
+  const resourcesFromPicker = getCheckedValues(resourcesPicker);
+  const resources = resourcesFromPicker.length ? resourcesFromPicker : splitToItems(resourcesFreeTextarea.value);
+
+  const assessmentsFromPicker = getCheckedValues(assessmentsPicker);
+  const assessments = assessmentsFromPicker.length ? assessmentsFromPicker : splitToItems(assessmentsFreeTextarea.value);
 
   return {
     semester: semesterSelect.value,
@@ -380,7 +378,7 @@ function renderPreview() {
   el("signCoordinator").textContent = f.coordinator || "Coordinator";
 
   const weekStart = f.weekStart || getWeekStartDate(f.week);
-  const days = f.days || defaultDaysFor(f.cls, f.subject);
+  const days = f.days || defaultDaysFor(f.week, f.cls);
 
   const objectives = splitToItems(f.objectives);
   const activities = splitToItems(f.activities);
@@ -421,7 +419,7 @@ function buildMergedRows(days, weekStart, topic, objectives, activities, resourc
 }
 
 // ---------------------------------------------------------------
-// Export — PDF and PNG via html2canvas (works identically in both modes)
+// Export — PDF and PNG via html2canvas
 // ---------------------------------------------------------------
 async function captureCanvas() {
   return await html2canvas(el("dlpTable"), { scale: 2.5, backgroundColor: "#ffffff" });
@@ -459,7 +457,8 @@ function buildFileName(ext) {
 }
 
 // ---------------------------------------------------------------
-// Save entry back to the sheet — only available in Sheet mode
+// Save entry back to the sheet — Lessons row is now simplified to
+// Week, Class, Days, Topic, Objectives, Activities, Resources, Assessments
 // ---------------------------------------------------------------
 async function saveEntry() {
   if (MODE !== "sheet" || !SHEET_READY) {
@@ -476,12 +475,8 @@ async function saveEntry() {
     return;
   }
 
-  const days = f.days || defaultDaysFor(f.cls, f.subject);
+  const days = f.days || defaultDaysFor(f.week, f.cls);
   const payload = {
-    Semester: f.semester,
-    Subject: f.subject,
-    Teacher: f.teacher,
-    Coordinator: f.coordinator,
     Week: f.week,
     Class: f.cls,
     Days: days.join(", "),
@@ -518,5 +513,5 @@ pngBtn.addEventListener("click", exportPng);
 reloadBtn.addEventListener("click", loadAll);
 saveEntryBtn.addEventListener("click", saveEntry);
 
-setMode("quick");
+setMode("sheet");
 loadAll();
