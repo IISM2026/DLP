@@ -518,5 +518,5 @@ pngBtn.addEventListener("click", exportPng);
 reloadBtn.addEventListener("click", loadAll);
 saveEntryBtn.addEventListener("click", saveEntry);
 
-setMode("sheet");
+setMode("quick");
 loadAll();
