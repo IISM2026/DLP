@@ -20,7 +20,7 @@
 const SHEET_ID = "19gLRGZRoe8mwS0Mlvp58fKmzGibAEsNCXFT2Cj_wMFA";
 
 const GIDS = {
-  Lessons: "0",
+  Lessons: "492370097",
   Subjects: "1065178766",
   Teachers: "1949288889",
   Classes: "1340083187",
