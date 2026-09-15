@@ -1,0 +1,230 @@
+:root{
+  --gold:#f2b705;
+  --gold-dark:#e0a800;
+  --ink:#1a1a1a;
+  --border:#000;
+  --grey-bg:#fafafa;
+}
+
+*{box-sizing:border-box;}
+
+body{
+  margin:0;
+  font-family:'Segoe UI', Arial, sans-serif;
+  background:#eef1f4;
+  color:var(--ink);
+}
+
+.app-shell{
+  max-width:1500px;
+  margin:0 auto;
+  padding:24px 20px 60px;
+}
+
+.app-header h1{
+  margin:0 0 2px;
+  font-size:22px;
+}
+.app-header .subtitle{
+  margin:0 0 20px;
+  color:#555;
+  font-size:13px;
+}
+
+.controls{
+  display:flex;
+  flex-wrap:wrap;
+  gap:14px;
+  align-items:flex-end;
+  background:#fff;
+  border:1px solid #d8dce1;
+  border-radius:10px;
+  padding:16px;
+  margin-bottom:14px;
+}
+.field{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  min-width:140px;
+}
+.field-wide{min-width:260px; flex:1;}
+.field-actions{
+  flex-direction:row;
+  gap:8px;
+  margin-left:auto;
+  align-self:flex-end;
+}
+.field label{
+  font-size:11px;
+  font-weight:600;
+  text-transform:uppercase;
+  letter-spacing:.03em;
+  color:#555;
+}
+.field select{
+  padding:8px 10px;
+  border:1px solid #c6ccd4;
+  border-radius:6px;
+  font-size:13px;
+  background:#fff;
+}
+button{
+  padding:9px 14px;
+  border:none;
+  border-radius:6px;
+  font-size:13px;
+  font-weight:600;
+  cursor:pointer;
+  background:var(--gold);
+  color:#1a1a1a;
+  transition:background .15s;
+}
+button:hover:not(:disabled){background:var(--gold-dark);}
+button:disabled{opacity:.45; cursor:not-allowed;}
+#reloadBtn{background:#e2e6ea;}
+#reloadBtn:hover{background:#d3d8de;}
+
+.status{
+  font-size:12.5px;
+  color:#555;
+  margin:0 4px 18px;
+}
+
+.preview-wrap{
+  overflow-x:auto;
+  padding-bottom:20px;
+}
+
+/* ===== Fixed-size DLP table, matching the source template proportions ===== */
+.dlp-table-outer{
+  width:1400px;
+  background:#fff;
+  padding:24px;
+  margin:0 auto;
+  border:1px solid #ccc;
+}
+
+.dlp-table{
+  width:100%;
+  border-collapse:collapse;
+  table-layout:fixed;
+  font-size:12px;
+}
+.dlp-table th, .dlp-table td{
+  border:1.5px solid var(--border);
+  padding:8px 10px;
+  vertical-align:top;
+  text-align:left;
+}
+
+.title-cell{
+  padding:10px 14px;
+  border-bottom:1.5px solid var(--border);
+}
+.title-flex{
+  display:flex;
+  align-items:center;
+  gap:16px;
+}
+.logo-slot{
+  width:64px;
+  height:64px;
+  flex:0 0 64px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+.logo-slot img{
+  max-width:100%;
+  max-height:100%;
+  object-fit:contain;
+}
+.title-text{flex:1;}
+.school-name{
+  font-size:15px;
+  font-weight:800;
+  letter-spacing:.01em;
+}
+.dlp-name{
+  font-size:13px;
+  font-weight:700;
+  margin-top:2px;
+}
+.member-line{
+  font-size:10.5px;
+  font-style:italic;
+  color:#333;
+  margin-top:2px;
+}
+
+.meta-row td{
+  background:#fff;
+  font-size:12.5px;
+  padding:7px 12px;
+  border-top:none;
+}
+
+.col-head-row th{
+  background:var(--gold);
+  font-size:11.5px;
+  font-weight:800;
+  text-align:center;
+  letter-spacing:.02em;
+  padding:9px 8px;
+}
+
+/* fixed row height so the box footprint stays identical regardless of content amount */
+.day-cell{
+  font-weight:700;
+  text-align:center;
+  vertical-align:middle;
+  font-size:12.5px;
+}
+.day-cell .day-name{display:block;}
+.day-cell .day-date{display:block; font-weight:400; font-size:11.5px; margin-top:2px;}
+
+.dlp-table tbody td{
+  height:150px; /* fixed cell footprint, matches template's tall boxes */
+}
+.merged-cell{
+  vertical-align:top;
+}
+
+.cell-list{
+  margin:0;
+  padding-left:16px;
+  font-size:11.5px;
+  line-height:1.45;
+}
+.cell-list li{margin-bottom:4px;}
+.cell-list.numbered{list-style:decimal;}
+.empty-note{
+  color:#999;
+  font-style:italic;
+  font-size:11px;
+}
+
+.sign-row{
+  display:flex;
+  gap:80px;
+  margin-top:26px;
+  padding:0 14px;
+}
+.sign-block{width:260px;}
+.sign-label{
+  font-style:italic;
+  font-size:12.5px;
+  margin-bottom:28px;
+}
+.sign-line{
+  border-bottom:1px dotted #444;
+  margin-bottom:6px;
+}
+.sign-name{
+  font-size:12.5px;
+}
+
+@media (max-width: 900px){
+  .dlp-table-outer{width:100%;}
+}

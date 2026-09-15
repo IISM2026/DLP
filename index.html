@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DLP Generator — IIS Malaysia</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+<body>
+
+<div class="app-shell">
+  <header class="app-header">
+    <h1>Daily Lesson Plan Generator</h1>
+    <p class="subtitle">International Islamic School Malaysia (Secondary)</p>
+  </header>
+
+  <section class="controls" id="controls">
+    <div class="field">
+      <label for="semesterSelect">Semester</label>
+      <select id="semesterSelect"><option value="">Loading…</option></select>
+    </div>
+    <div class="field">
+      <label for="subjectSelect">Subject</label>
+      <select id="subjectSelect"><option value="">—</option></select>
+    </div>
+    <div class="field">
+      <label for="classSelect">Class</label>
+      <select id="classSelect"><option value="">—</option></select>
+    </div>
+    <div class="field">
+      <label for="weekSelect">Week</label>
+      <select id="weekSelect"><option value="">—</option></select>
+    </div>
+    <div class="field field-wide">
+      <label for="topicSelect">Topic</label>
+      <select id="topicSelect"><option value="">—</option></select>
+    </div>
+    <div class="field field-actions">
+      <button id="previewBtn" type="button">Preview</button>
+      <button id="pdfBtn" type="button" disabled>Download PDF</button>
+      <button id="pngBtn" type="button" disabled>Download PNG</button>
+      <button id="reloadBtn" type="button" title="Re-fetch sheet data">Reload Sheet</button>
+    </div>
+  </section>
+
+  <p class="status" id="statusMsg">Connecting to Google Sheet…</p>
+
+  <section class="preview-wrap">
+    <div class="dlp-table-outer" id="dlpTable">
+
+      <table class="dlp-table">
+        <colgroup>
+          <col style="width:9%">
+          <col style="width:16%">
+          <col style="width:20%">
+          <col style="width:29%">
+          <col style="width:15%">
+          <col style="width:11%">
+        </colgroup>
+
+        <thead>
+          <tr class="header-row">
+            <th colspan="6" class="title-cell">
+              <div class="title-flex">
+                <div class="logo-slot"><img src="logo.png" alt="School logo" id="logoImg" onerror="this.style.visibility='hidden'"></div>
+                <div class="title-text">
+                  <div class="school-name">INTERNATIONAL ISLAMIC SCHOOL MALAYSIA (SECONDARY)</div>
+                  <div class="dlp-name" id="dlpTitleLine">DAILY LESSON PLAN <span id="titleYear">2026-2027</span> (<span id="titleSemester">SEMESTER 1</span>)</div>
+                  <div class="member-line">Member of International Islamic University Malaysia</div>
+                </div>
+              </div>
+            </th>
+          </tr>
+          <tr class="meta-row">
+            <td colspan="2"><strong>Subject:</strong> <span id="metaSubject">—</span></td>
+            <td colspan="2"><strong>Grade:</strong> <span id="metaClass">—</span></td>
+            <td colspan="2"><strong>Week:</strong> <span id="metaWeek">—</span></td>
+          </tr>
+          <tr class="col-head-row">
+            <th>DAY &amp; DATE</th>
+            <th>TOPIC &amp; SUBTOPICS</th>
+            <th>OBJECTIVES</th>
+            <th>TEACHING &amp; LEARNING ACTIVITIES</th>
+            <th>RESOURCES</th>
+            <th>ASSESSMENTS</th>
+          </tr>
+        </thead>
+
+        <tbody id="dlpBody">
+          <!-- rows injected by app.js, day cells + merged topic/obj/activities/resources/assessment cells -->
+        </tbody>
+      </table>
+
+      <div class="sign-row">
+        <div class="sign-block">
+          <div class="sign-label">Prepared by:</div>
+          <div class="sign-line"></div>
+          <div class="sign-name" id="signTeacher">Teacher Name</div>
+        </div>
+        <div class="sign-block">
+          <div class="sign-label">Checked by:</div>
+          <div class="sign-line"></div>
+          <div class="sign-name" id="signCoordinator">Coordinator</div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
