@@ -1,206 +1,102 @@
 /* ============================================================
-   DLP Generator — app.js  (Sheet mode + Quick Fill mode)
+   DLP Generator — app.js  (fully self-contained, no Google Sheet)
    ------------------------------------------------------------
-   Lessons tab is simplified to only:
-     Week | Class | Days | Topic | Objectives | Activities | Resources | Assessments
-   Semester / Subject / Teacher / Coordinator are picked from
-   their own lookup tabs each time and are NOT stored per Lessons
-   row — they're attached fresh whenever you fill the form.
-   ------------------------------------------------------------
-   TWO MODES:
-   1. "sheet"  — reads all lookup tabs from Google Sheets, offers
-                 dropdowns, and can save new entries back via the
-                 Apps Script Web App (see apps_script.gs).
-   2. "quick"  — no sheet dependency required to fill the form.
-                 Any teacher can open the page and type everything
-                 directly. Nothing is saved; Preview + PDF/PNG only.
+   Every lookup list lives right here as a constant. To edit any
+   list (add a teacher, class, resource, assessment...), just
+   edit the arrays below — no spreadsheet, no fetch, no backend.
    ============================================================ */
 
-// ---- 1. CONFIGURE ----
-const SHEET_ID = "19gLRGZRoe8mwS0Mlvp58fKmzGibAEsNCXFT2Cj_wMFA";
+// ---- 1. EDIT THESE LISTS AS NEEDED ----
 
-const GIDS = {
-  Lessons: "492370097",
-  Subjects: "1065178766",
-  Teachers: "1949288889",
-  Classes: "1340083187",
-  Coordinators: "841956882",
-  Weeks: "39294606",
-  Resources: "241556045",
-  Assessments: "655947972",
-  Topics: "960685870"
-};
+// Add teacher names here. Currently empty — add "Ahmad Mu'az" (or
+// whichever teachers you want in the dropdown) as new array items,
+// one string per teacher, e.g.: const TEACHERS = ["Ahmad Mu'az", "Nurul Huda"];
+const TEACHERS = [
+  "Ahmad Mu'az"
+];
 
-const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyS7fZgd3fHbCjMw7i5iq_VU16VFt7rfK8_Uvt0Q_GbefaeqZin9gOFsRySrfqrLQpsZg/exec";
+const COORDINATORS = [
+  "Jalal Alwan"
+];
 
-const gvizUrl = (gid) =>
-  `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&gid=${gid}`;
+const SUBJECTS = [
+  "Islamic Studies",
+  "Islamic History"
+];
+
+// Classes: Grade 7 to 11, each with 5 streams (F, R, G, IK, IN)
+const CLASSES = (() => {
+  const grades = [7, 8, 9, 10, 11];
+  const streams = ["F", "R", "G", "IK", "IN"];
+  const list = [];
+  grades.forEach((g) => streams.forEach((s) => list.push(`${g}${s}`)));
+  return list;
+})();
+
+// Weeks 1–18, starting Monday 17 Aug 2026, one week apart
+const WEEKS = (() => {
+  const start = new Date(2026, 7, 17); // month is 0-indexed: 7 = August
+  const list = [];
+  for (let i = 0; i < 18; i++) {
+    const d = new Date(start);
+    d.setDate(d.getDate() + i * 7);
+    list.push({ week: i + 1, start: d });
+  }
+  return list;
+})();
+
+const RESOURCES = [
+  "Islamic Studies Book",
+  "YouTube Educational Video",
+  "Whiteboard / Interactive Board",
+  "Worksheet Handout",
+  "Past-Year Paper",
+  "PowerPoint / Slides",
+  "Qur'an / Hadith Text"
+];
+
+// Beyond your two, added common formative-assessment types used in
+// secondary classrooms (exit tickets, quizzes, oral questioning, etc.)
+const ASSESSMENTS = [
+  "Exit Ticket",
+  "Short Quiz",
+  "Oral Questioning",
+  "Think-Pair-Share",
+  "Worksheet Completion",
+  "Group Presentation",
+  "Peer Assessment",
+  "Class Discussion Observation"
+];
+
+const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+const MAX_DAYS = 3;
 
 // ---------------------------------------------------------------
-// State
+// DOM refs
 // ---------------------------------------------------------------
-let MODE = "sheet"; // "sheet" | "quick"
-let SHEET_READY = false;
-let LESSONS = [];
-let LOOKUPS = { Subjects: [], Teachers: [], Classes: [], Coordinators: [], Weeks: [], Resources: [], Assessments: [], Topics: [] };
-
 const el = (id) => document.getElementById(id);
 const statusMsg = el("statusMsg");
 
-const modeSheetBtn = el("modeSheetBtn");
-const modeQuickBtn = el("modeQuickBtn");
-const modeHint = el("modeHint");
-
 const semesterSelect = el("semesterSelect");
-
-const subjectSelect = el("subjectSelect");
-const subjectFreeInput = el("subjectFreeInput");
 const teacherSelect = el("teacherSelect");
-const teacherFreeInput = el("teacherFreeInput");
 const coordinatorSelect = el("coordinatorSelect");
-const coordinatorFreeInput = el("coordinatorFreeInput");
+const subjectSelect = el("subjectSelect");
 const classSelect = el("classSelect");
-const classFreeInput = el("classFreeInput");
 const weekSelect = el("weekSelect");
-const weekFreeInput = el("weekFreeInput");
-const weekStartField = el("weekStartField");
-const weekStartFreeInput = el("weekStartFreeInput");
-const daysFreeInput = el("daysFreeInput");
+const daysRow = el("daysRow");
 
 const topicInput = el("topicInput");
-const topicDatalist = el("topicDatalist");
 const objectivesInput = el("objectivesInput");
 const activitiesInput = el("activitiesInput");
-
 const resourcesPicker = el("resourcesPicker");
-const resourcesFreeTextarea = el("resourcesFreeTextarea");
 const assessmentsPicker = el("assessmentsPicker");
-const assessmentsFreeTextarea = el("assessmentsFreeTextarea");
 
 const previewBtn = el("previewBtn");
 const pdfBtn = el("pdfBtn");
 const pngBtn = el("pngBtn");
-const reloadBtn = el("reloadBtn");
-const saveEntryBtn = el("saveEntryBtn");
 
 // ---------------------------------------------------------------
-// Mode switching
-// ---------------------------------------------------------------
-function setMode(newMode) {
-  MODE = newMode;
-  const isQuick = MODE === "quick";
-
-  modeSheetBtn.classList.toggle("active", !isQuick);
-  modeQuickBtn.classList.toggle("active", isQuick);
-  modeSheetBtn.setAttribute("aria-selected", String(!isQuick));
-  modeQuickBtn.setAttribute("aria-selected", String(isQuick));
-
-  modeHint.textContent = isQuick
-    ? "Quick Fill: type everything directly. Nothing is saved to the sheet — Preview and PDF/PNG export only."
-    : "Load & Save: pick from your Google Sheet's lookup tabs. New entries can be saved back to the sheet.";
-
-  toggleFreePair(subjectSelect, subjectFreeInput, isQuick && !SHEET_READY);
-  toggleFreePair(teacherSelect, teacherFreeInput, isQuick && !SHEET_READY);
-  toggleFreePair(coordinatorSelect, coordinatorFreeInput, isQuick && !SHEET_READY);
-  toggleFreePair(classSelect, classFreeInput, isQuick && !SHEET_READY);
-  toggleFreePair(weekSelect, weekFreeInput, isQuick && !SHEET_READY);
-
-  weekStartField.classList.toggle("hidden", !isQuick);
-
-  resourcesPicker.classList.toggle("hidden", isQuick && !SHEET_READY);
-  resourcesFreeTextarea.classList.toggle("hidden", !(isQuick && !SHEET_READY));
-  assessmentsPicker.classList.toggle("hidden", isQuick && !SHEET_READY);
-  assessmentsFreeTextarea.classList.toggle("hidden", !(isQuick && !SHEET_READY));
-
-  saveEntryBtn.classList.toggle("hidden", isQuick);
-  saveEntryBtn.disabled = true;
-
-  pdfBtn.disabled = true;
-  pngBtn.disabled = true;
-}
-
-function toggleFreePair(selectEl, freeInputEl, showFreeInput) {
-  selectEl.classList.toggle("hidden", showFreeInput);
-  freeInputEl.classList.toggle("hidden", !showFreeInput);
-}
-
-modeSheetBtn.addEventListener("click", () => setMode("sheet"));
-modeQuickBtn.addEventListener("click", () => setMode("quick"));
-
-// ---------------------------------------------------------------
-// Fetch helpers (Sheet mode)
-// ---------------------------------------------------------------
-function extractGvizJson(text) {
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  return JSON.parse(text.substring(start, end + 1));
-}
-
-function gvizToRecords(json) {
-  const cols = json.table.cols.map((c) => (c.label || c.id || "").trim());
-  const rows = json.table.rows || [];
-  return rows.map((r) => {
-    const obj = {};
-    (r.c || []).forEach((cell, i) => {
-      const key = cols[i];
-      if (!key) return;
-      obj[key] = cell ? (cell.f ?? cell.v ?? "") : "";
-    });
-    return obj;
-  });
-}
-
-async function fetchTab(gid) {
-  const res = await fetch(gvizUrl(gid));
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const text = await res.text();
-  return gvizToRecords(extractGvizJson(text));
-}
-
-// ---------------------------------------------------------------
-// Load everything from the sheet
-// ---------------------------------------------------------------
-async function loadAll() {
-  statusMsg.textContent = "Connecting to Google Sheet…";
-  try {
-    const [lessons, subjects, teachers, classes, coordinators, weeks, resources, assessments, topics] =
-      await Promise.all([
-        fetchTab(GIDS.Lessons),
-        fetchTab(GIDS.Subjects),
-        fetchTab(GIDS.Teachers),
-        fetchTab(GIDS.Classes),
-        fetchTab(GIDS.Coordinators),
-        fetchTab(GIDS.Weeks),
-        fetchTab(GIDS.Resources),
-        fetchTab(GIDS.Assessments),
-        fetchTab(GIDS.Topics)
-      ]);
-
-    LESSONS = lessons; // Week, Class, Days, Topic, Objectives, Activities, Resources, Assessments
-    LOOKUPS.Subjects = subjects.map((r) => r.Subject).filter(Boolean);
-    LOOKUPS.Teachers = teachers.map((r) => r.Teacher).filter(Boolean);
-    LOOKUPS.Classes = classes.map((r) => r.Class).filter(Boolean);
-    LOOKUPS.Coordinators = coordinators.map((r) => r.Coordinator).filter(Boolean);
-    LOOKUPS.Weeks = weeks; // {Week, WeekStartDate}
-    LOOKUPS.Resources = resources.map((r) => r.ResourceLabel).filter(Boolean);
-    LOOKUPS.Assessments = assessments.map((r) => r.AssessmentLabel).filter(Boolean);
-    LOOKUPS.Topics = topics.map((r) => r.Topic).filter(Boolean);
-
-    SHEET_READY = true;
-    populateStaticDropdowns();
-    statusMsg.textContent = `Loaded ${LESSONS.length} lesson row(s) and all lookup tabs. Both modes are ready.`;
-  } catch (err) {
-    console.error(err);
-    SHEET_READY = false;
-    fillSelect(semesterSelect, ["Semester 1", "Semester 2"], "Select semester");
-    statusMsg.textContent =
-      "Could not load the sheet — Quick Fill mode still works using typed input. Check GIDS in app.js and sheet sharing.";
-  }
-  setMode(MODE);
-}
-
-// ---------------------------------------------------------------
-// Populate dropdowns from lookup tabs
+// Populate all dropdowns / pickers on load
 // ---------------------------------------------------------------
 function fillSelect(selectEl, values, placeholder) {
   selectEl.innerHTML = `<option value="">${placeholder}</option>`;
@@ -212,23 +108,24 @@ function fillSelect(selectEl, values, placeholder) {
   });
 }
 
-function populateStaticDropdowns() {
-  fillSelect(semesterSelect, ["Semester 1", "Semester 2"], "Select semester");
-  fillSelect(subjectSelect, LOOKUPS.Subjects, "Select subject");
-  fillSelect(teacherSelect, LOOKUPS.Teachers, "Select teacher");
-  fillSelect(coordinatorSelect, LOOKUPS.Coordinators, "Select coordinator");
-  fillSelect(classSelect, LOOKUPS.Classes, "Select class");
+function init() {
+  fillSelect(teacherSelect, TEACHERS, TEACHERS.length ? "Select teacher" : "No teachers added yet");
+  fillSelect(coordinatorSelect, COORDINATORS, "Select coordinator");
+  fillSelect(subjectSelect, SUBJECTS, "Select subject");
+  fillSelect(classSelect, CLASSES, "Select class");
+  fillSelect(weekSelect, WEEKS.map((w) => String(w.week)), "Select week");
 
-  const weekNums = LOOKUPS.Weeks
-    .map((r) => String(r.Week).trim())
-    .filter(Boolean)
-    .sort((a, b) => Number(a) - Number(b));
-  fillSelect(weekSelect, weekNums, "Select week (1–25)");
+  daysRow.innerHTML = WEEKDAYS.map(
+    (d, i) => `
+    <label class="day-chip" for="day_${i}">
+      <input type="checkbox" id="day_${i}" value="${d}">
+      <span>${d}</span>
+    </label>`
+  ).join("");
+  daysRow.addEventListener("change", enforceMaxDays);
 
-  topicDatalist.innerHTML = LOOKUPS.Topics.map((t) => `<option value="${escapeHtml(t)}">`).join("");
-
-  renderPicker(resourcesPicker, LOOKUPS.Resources, "res");
-  renderPicker(assessmentsPicker, LOOKUPS.Assessments, "assess");
+  renderPicker(resourcesPicker, RESOURCES, "res");
+  renderPicker(assessmentsPicker, ASSESSMENTS, "assess");
 }
 
 function renderPicker(container, items, prefix) {
@@ -244,6 +141,15 @@ function renderPicker(container, items, prefix) {
     .join("");
 }
 
+function enforceMaxDays() {
+  const boxes = [...daysRow.querySelectorAll("input[type=checkbox]")];
+  const checked = boxes.filter((b) => b.checked);
+  if (checked.length > MAX_DAYS) {
+    checked[0].checked = false;
+    statusMsg.textContent = `You can select up to ${MAX_DAYS} teaching days only.`;
+  }
+}
+
 function getCheckedValues(container) {
   return [...container.querySelectorAll("input[type=checkbox]:checked")].map((cb) => cb.value);
 }
@@ -251,29 +157,16 @@ function getCheckedValues(container) {
 // ---------------------------------------------------------------
 // Date helpers
 // ---------------------------------------------------------------
-const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-
-function parseSheetDate(value) {
-  if (typeof value === "string" && value.startsWith("Date(")) {
-    const parts = value.replace("Date(", "").replace(")", "").split(",").map(Number);
-    return new Date(parts[0], parts[1], parts[2]);
-  }
-  const d = new Date(value);
-  return isNaN(d) ? null : d;
-}
-
-function getWeekStartDate(weekNum) {
-  const row = LOOKUPS.Weeks.find((r) => String(r.Week).trim() === String(weekNum).trim());
-  return row ? parseSheetDate(row.WeekStartDate) : null;
+function getWeekStart(weekNum) {
+  const row = WEEKS.find((w) => String(w.week) === String(weekNum));
+  return row ? row.start : null;
 }
 
 function dateForWeekday(weekStart, weekdayName) {
-  const targetIdx = WEEKDAYS.findIndex((d) => d.toLowerCase() === weekdayName.trim().toLowerCase());
-  if (targetIdx < 0 || !weekStart) return null;
-  const mondayIdx = 1;
-  const offset = ((targetIdx - mondayIdx) + 7) % 7;
+  const idx = WEEKDAYS.indexOf(weekdayName);
+  if (idx < 0 || !weekStart) return null;
   const d = new Date(weekStart);
-  d.setDate(d.getDate() + offset);
+  d.setDate(d.getDate() + idx); // WEEKDAYS[0] = Monday = weekStart itself
   return d;
 }
 
@@ -297,103 +190,54 @@ function listOrEmpty(items, emptyLabel) {
 function escapeHtml(str) {
   return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
-function extractSemesterNumber(semStr) {
-  const m = String(semStr).match(/\d+/);
-  return m ? m[0] : semStr;
-}
-
-// Lessons is now Week+Class scoped only (no Subject/Teacher stored),
-// so "usual days" lookup matches on Week+Class.
-function defaultDaysFor(week, cls) {
-  const existing = LESSONS.find(
-    (r) => String(r.Week).trim() === String(week).trim() && String(r.Class).trim() === cls && r.Days
-  );
-  if (existing) return splitToItems(String(existing.Days).replace(/,/g, "\n"));
-  return ["Monday", "Wednesday", "Friday"];
-}
-
-// ---------------------------------------------------------------
-// Reading the form
-// ---------------------------------------------------------------
-function valueOrFree(selectEl, freeInputEl) {
-  return freeInputEl.classList.contains("hidden") ? selectEl.value : freeInputEl.value.trim();
-}
-
-function currentForm() {
-  const isQuick = MODE === "quick";
-
-  let week, weekStart, days;
-  week = weekFreeInput.classList.contains("hidden") ? weekSelect.value : weekFreeInput.value.trim();
-
-  if (isQuick && weekStartFreeInput.value) {
-    weekStart = new Date(weekStartFreeInput.value);
-  } else {
-    weekStart = getWeekStartDate(week);
-  }
-
-  if (daysFreeInput.value.trim()) {
-    days = splitToItems(daysFreeInput.value.replace(/,/g, "\n"));
-  } else {
-    days = isQuick ? ["Monday", "Wednesday", "Friday"] : null; // resolved later via defaultDaysFor
-  }
-
-  const resourcesFromPicker = getCheckedValues(resourcesPicker);
-  const resources = resourcesFromPicker.length ? resourcesFromPicker : splitToItems(resourcesFreeTextarea.value);
-
-  const assessmentsFromPicker = getCheckedValues(assessmentsPicker);
-  const assessments = assessmentsFromPicker.length ? assessmentsFromPicker : splitToItems(assessmentsFreeTextarea.value);
-
-  return {
-    semester: semesterSelect.value,
-    subject: valueOrFree(subjectSelect, subjectFreeInput),
-    teacher: valueOrFree(teacherSelect, teacherFreeInput),
-    coordinator: valueOrFree(coordinatorSelect, coordinatorFreeInput),
-    cls: valueOrFree(classSelect, classFreeInput),
-    week,
-    weekStart,
-    days,
-    topic: topicInput.value.trim(),
-    objectives: objectivesInput.value,
-    activities: activitiesInput.value,
-    resources,
-    assessments
-  };
-}
 
 // ---------------------------------------------------------------
 // Preview rendering
 // ---------------------------------------------------------------
+function currentForm() {
+  return {
+    semester: semesterSelect.value,
+    teacher: teacherSelect.value,
+    coordinator: coordinatorSelect.value,
+    subject: subjectSelect.value,
+    cls: classSelect.value,
+    week: weekSelect.value,
+    days: [...daysRow.querySelectorAll("input:checked")].map((cb) => cb.value),
+    topic: topicInput.value.trim(),
+    objectives: objectivesInput.value,
+    activities: activitiesInput.value,
+    resources: getCheckedValues(resourcesPicker),
+    assessments: getCheckedValues(assessmentsPicker)
+  };
+}
+
 function renderPreview() {
   const f = currentForm();
-  if (!f.semester || !f.subject || !f.teacher || !f.cls || !f.week || !f.topic) {
-    statusMsg.textContent = "Please fill Semester, Subject, Teacher, Class, Week and Topic first.";
+  if (!f.semester || !f.teacher || !f.subject || !f.cls || !f.week || !f.topic || f.days.length === 0) {
+    statusMsg.textContent = "Please fill Semester, Teacher, Subject, Class, Week, at least one Teaching day, and Topic.";
     return;
   }
 
-  el("titleSemester").textContent = `SEMESTER ${extractSemesterNumber(f.semester)}`;
+  el("titleSemester").textContent = `SEMESTER ${f.semester}`;
   el("metaSubject").textContent = f.subject;
   el("metaClass").textContent = f.cls;
   el("metaWeek").textContent = f.week;
   el("signTeacher").textContent = f.teacher || "Teacher Name";
   el("signCoordinator").textContent = f.coordinator || "Coordinator";
 
-  const weekStart = f.weekStart || getWeekStartDate(f.week);
-  const days = f.days || defaultDaysFor(f.week, f.cls);
+  const weekStart = getWeekStart(f.week);
+  const orderedDays = WEEKDAYS.filter((d) => f.days.includes(d)); // keep Mon->Fri order regardless of click order
 
   const objectives = splitToItems(f.objectives);
   const activities = splitToItems(f.activities);
 
   el("dlpBody").innerHTML = buildMergedRows(
-    days, weekStart, f.topic, objectives, activities, f.resources, f.assessments
+    orderedDays, weekStart, f.topic, objectives, activities, f.resources, f.assessments
   );
 
-  const canSave = MODE === "sheet" && SHEET_READY;
-  statusMsg.textContent = canSave
-    ? "Preview generated. Download PDF/PNG, or save this entry to the sheet."
-    : "Preview generated. Download as PDF or PNG.";
+  statusMsg.textContent = "Preview generated. Download as PDF or PNG.";
   pdfBtn.disabled = false;
   pngBtn.disabled = false;
-  saveEntryBtn.disabled = !canSave;
 }
 
 function buildMergedRows(days, weekStart, topic, objectives, activities, resources, assessments) {
@@ -457,61 +301,10 @@ function buildFileName(ext) {
 }
 
 // ---------------------------------------------------------------
-// Save entry back to the sheet — Lessons row is now simplified to
-// Week, Class, Days, Topic, Objectives, Activities, Resources, Assessments
-// ---------------------------------------------------------------
-async function saveEntry() {
-  if (MODE !== "sheet" || !SHEET_READY) {
-    statusMsg.textContent = "Saving is only available in Load & Save mode with the sheet connected.";
-    return;
-  }
-  const f = currentForm();
-  if (!f.semester || !f.subject || !f.teacher || !f.cls || !f.week || !f.topic) {
-    statusMsg.textContent = "Fill in the form and click Preview before saving.";
-    return;
-  }
-  if (APPS_SCRIPT_URL.includes("PASTE_")) {
-    statusMsg.textContent = "Saving is not configured yet — set APPS_SCRIPT_URL in app.js (see README).";
-    return;
-  }
-
-  const days = f.days || defaultDaysFor(f.week, f.cls);
-  const payload = {
-    Week: f.week,
-    Class: f.cls,
-    Days: days.join(", "),
-    Topic: f.topic,
-    Objectives: f.objectives,
-    Activities: f.activities,
-    Resources: f.resources.join(", "),
-    Assessments: f.assessments.join(", ")
-  };
-
-  statusMsg.textContent = "Saving entry to sheet…";
-  try {
-    await fetch(APPS_SCRIPT_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify(payload)
-    });
-    statusMsg.textContent = "Saved. Reloading sheet data…";
-    if (!LOOKUPS.Topics.includes(f.topic)) LOOKUPS.Topics.push(f.topic);
-    topicDatalist.innerHTML = LOOKUPS.Topics.map((t) => `<option value="${escapeHtml(t)}">`).join("");
-    await loadAll();
-  } catch (err) {
-    console.error(err);
-    statusMsg.textContent = "Save failed — check the Apps Script deployment URL and permissions.";
-  }
-}
-
-// ---------------------------------------------------------------
 // Event wiring
 // ---------------------------------------------------------------
 previewBtn.addEventListener("click", renderPreview);
 pdfBtn.addEventListener("click", exportPdf);
 pngBtn.addEventListener("click", exportPng);
-reloadBtn.addEventListener("click", loadAll);
-saveEntryBtn.addEventListener("click", saveEntry);
 
-setMode("sheet");
-loadAll();
+init();
