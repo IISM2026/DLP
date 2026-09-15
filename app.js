@@ -21,17 +21,17 @@ const SHEET_ID = "19gLRGZRoe8mwS0Mlvp58fKmzGibAEsNCXFT2Cj_wMFA";
 
 const GIDS = {
   Lessons: "0",
-  Subjects: "PASTE_GID",
-  Teachers: "PASTE_GID",
-  Classes: "PASTE_GID",
-  Coordinators: "PASTE_GID",
-  Weeks: "PASTE_GID",
-  Resources: "PASTE_GID",
-  Assessments: "PASTE_GID",
-  Topics: "PASTE_GID"
+  Subjects: "1065178766",
+  Teachers: "1949288889",
+  Classes: "1340083187",
+  Coordinators: "841956882",
+  Weeks: "39294606",
+  Resources: "241556045",
+  Assessments: "655947972",
+  Topics: "960685870"
 };
 
-const APPS_SCRIPT_URL = "PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE";
+const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzAAw5pTgqyNdmscAitgRJHkoPnNCmAUIrSkBK_NVTeGD73JdOtojQ8pt70Qq3Uji-mpw/exec";
 
 const gvizUrl = (gid) =>
   `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&gid=${gid}`;
