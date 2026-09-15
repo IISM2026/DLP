@@ -16,36 +16,68 @@
     <p class="subtitle">International Islamic School Malaysia (Secondary)</p>
   </header>
 
-  <section class="controls" id="controls">
-    <div class="field">
-      <label for="semesterSelect">Semester</label>
-      <select id="semesterSelect"><option value="">Loading…</option></select>
+  <section class="controls">
+    <div class="controls-grid">
+
+      <div class="field">
+        <label for="semesterSelect">Semester</label>
+        <select id="semesterSelect"><option value="">Loading…</option></select>
+      </div>
+      <div class="field">
+        <label for="subjectSelect">Subject</label>
+        <select id="subjectSelect"><option value="">—</option></select>
+      </div>
+      <div class="field">
+        <label for="teacherSelect">Teacher</label>
+        <select id="teacherSelect"><option value="">—</option></select>
+      </div>
+      <div class="field">
+        <label for="coordinatorSelect">Coordinator</label>
+        <select id="coordinatorSelect"><option value="">—</option></select>
+      </div>
+      <div class="field">
+        <label for="classSelect">Class</label>
+        <select id="classSelect"><option value="">—</option></select>
+      </div>
+      <div class="field">
+        <label for="weekSelect">Week (1–25)</label>
+        <select id="weekSelect"><option value="">—</option></select>
+      </div>
+
+      <div class="field field-wide">
+        <label for="topicInput">Topic <span class="hint">(type new or pick existing)</span></label>
+        <input type="text" id="topicInput" list="topicDatalist" placeholder="Start typing a topic…">
+        <datalist id="topicDatalist"></datalist>
+      </div>
+
+      <div class="field field-wide">
+        <label for="objectivesInput">Objectives <span class="hint">(one per line)</span></label>
+        <textarea id="objectivesInput" rows="4" placeholder="By the end of the lesson, students will be able to…"></textarea>
+      </div>
+
+      <div class="field field-wide">
+        <label for="activitiesInput">Teaching &amp; Learning Activities <span class="hint">(one per line)</span></label>
+        <textarea id="activitiesInput" rows="4" placeholder="- Begin with salām…"></textarea>
+      </div>
+
+      <div class="field field-wide">
+        <label>Resources <span class="hint">(select all that apply)</span></label>
+        <div class="picker-box" id="resourcesPicker"></div>
+      </div>
+
+      <div class="field field-wide">
+        <label>Assessments <span class="hint">(select all that apply)</span></label>
+        <div class="picker-box" id="assessmentsPicker"></div>
+      </div>
+
     </div>
-    <div class="field">
-      <label for="subjectSelect">Subject</label>
-      <select id="subjectSelect"><option value="">—</option></select>
-    </div>
-    <div class="field">
-      <label for="teacherSelect">Teacher</label>
-      <select id="teacherSelect"><option value="">—</option></select>
-    </div>
-    <div class="field">
-      <label for="classSelect">Class</label>
-      <select id="classSelect"><option value="">—</option></select>
-    </div>
-    <div class="field">
-      <label for="weekSelect">Week</label>
-      <select id="weekSelect"><option value="">—</option></select>
-    </div>
-    <div class="field field-wide">
-      <label for="topicSelect">Topic</label>
-      <select id="topicSelect"><option value="">—</option></select>
-    </div>
-    <div class="field field-actions">
+
+    <div class="field-actions">
       <button id="previewBtn" type="button">Preview</button>
+      <button id="saveEntryBtn" type="button" disabled>Save Entry to Sheet</button>
       <button id="pdfBtn" type="button" disabled>Download PDF</button>
       <button id="pngBtn" type="button" disabled>Download PNG</button>
-      <button id="reloadBtn" type="button" title="Re-fetch sheet data">Reload Sheet</button>
+      <button id="reloadBtn" type="button" title="Re-fetch all sheet tabs">Reload Sheet</button>
     </div>
   </section>
 
@@ -93,7 +125,7 @@
         </thead>
 
         <tbody id="dlpBody">
-          <!-- rows injected by app.js: day/date cell + rowspan-merged topic/objectives/activities/resources/assessment cells -->
+          <!-- rows injected by app.js -->
         </tbody>
       </table>
 

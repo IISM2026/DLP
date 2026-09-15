@@ -1,38 +1,54 @@
 /* ============================================================
-   DLP Generator — app.js
-   Reads a published Google Sheet, drives cascading dropdowns,
-   computes per-day dates for the selected week, and exports
-   the rendered table as PDF or PNG.
-
-   Sheet column order (headers must match row 1 exactly):
-   Semester | Subject | Teacher | Coordinator | Week | WeekStartDate |
-   Class | Days | Topic | Objectives | Activities | Resources | Assessments
+   DLP Generator — app.js  (multi-tab lookup version)
+   ------------------------------------------------------------
+   TABS EXPECTED IN THE SPREADSHEET:
+     Lessons      – Semester, Subject, Teacher, Coordinator, Week,
+                    Class, Topic, Objectives, Activities,
+                    Resources, Assessments
+                    (Resources/Assessments store comma-separated
+                     LABELS chosen from the Resources/Assessments tabs)
+     Subjects     – Subject
+     Teachers     – Teacher
+     Classes      – Class
+     Coordinators – Coordinator
+     Weeks        – Week, WeekStartDate   (pre-filled 1-25, each Monday)
+     Resources    – ResourceLabel
+     Assessments  – AssessmentLabel
+     Topics       – Topic   (auto-grows: every new topic typed gets
+                             appended here so it's reusable later)
+   ------------------------------------------------------------
+   WRITE-BACK (auto-saving new Topics) requires a small Google
+   Apps Script Web App, since plain gviz reads are read-only.
+   See APPS_SCRIPT_URL below and the README for the deploy steps.
    ============================================================ */
 
-// ---- 1. CONFIGURE THESE TWO VALUES ----
+// ---- 1. CONFIGURE THESE ----
 const SHEET_ID = "19gLRGZRoe8mwS0Mlvp58fKmzGibAEsNCXFT2Cj_wMFA";
-const GID = "0"; // tab/sheet gid, "0" = first tab
 
-const SHEET_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&gid=${GID}`;
-
-// Column headers — matched by name, so sheet column ORDER does not matter.
-const COLS = {
-  semester: "Semester",
-  subject: "Subject",
-  teacher: "Teacher",
-  coordinator: "Coordinator",
-  week: "Week",
-  weekStart: "WeekStartDate",
-  class: "Class",
-  days: "Days",
-  topic: "Topic",
-  objectives: "Objectives",
-  activities: "Activities",
-  resources: "Resources",
-  assessments: "Assessments"
+// gid for each tab — open each tab in the browser and copy the number after #gid=
+const GIDS = {
+  Lessons: "0",
+  Subjects: "PASTE_GID",
+  Teachers: "PASTE_GID",
+  Classes: "PASTE_GID",
+  Coordinators: "PASTE_GID",
+  Weeks: "PASTE_GID",
+  Resources: "PASTE_GID",
+  Assessments: "PASTE_GID",
+  Topics: "PASTE_GID"
 };
 
-let RECORDS = []; // parsed sheet rows as objects
+// Apps Script Web App URL (for appending new Topics back to the sheet)
+const APPS_SCRIPT_URL = "PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE";
+
+const gvizUrl = (gid) =>
+  `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&gid=${gid}`;
+
+// ---------------------------------------------------------------
+// State
+// ---------------------------------------------------------------
+let LESSONS = [];
+let LOOKUPS = { Subjects: [], Teachers: [], Classes: [], Coordinators: [], Weeks: [], Resources: [], Assessments: [], Topics: [] };
 
 const el = (id) => document.getElementById(id);
 const statusMsg = el("statusMsg");
@@ -40,41 +56,25 @@ const statusMsg = el("statusMsg");
 const semesterSelect = el("semesterSelect");
 const subjectSelect = el("subjectSelect");
 const teacherSelect = el("teacherSelect");
+const coordinatorSelect = el("coordinatorSelect");
 const classSelect = el("classSelect");
 const weekSelect = el("weekSelect");
-const topicSelect = el("topicSelect");
+const topicInput = el("topicInput");
+const topicDatalist = el("topicDatalist");
+const objectivesInput = el("objectivesInput");
+const activitiesInput = el("activitiesInput");
+const resourcesPicker = el("resourcesPicker");
+const assessmentsPicker = el("assessmentsPicker");
+
 const previewBtn = el("previewBtn");
 const pdfBtn = el("pdfBtn");
 const pngBtn = el("pngBtn");
 const reloadBtn = el("reloadBtn");
+const saveEntryBtn = el("saveEntryBtn");
 
 // ---------------------------------------------------------------
-// Fetch + parse the Google Sheet via the gviz JSON endpoint
+// Fetch helpers
 // ---------------------------------------------------------------
-async function loadSheet() {
-  statusMsg.textContent = "Connecting to Google Sheet…";
-  setSelectDisabled(true);
-  try {
-    const res = await fetch(SHEET_URL);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const text = await res.text();
-    const json = extractGvizJson(text);
-    RECORDS = gvizToRecords(json);
-    if (RECORDS.length === 0) {
-      statusMsg.textContent = "Sheet connected, but no rows were found. Check your headers match the README.";
-      return;
-    }
-    statusMsg.textContent = `Loaded ${RECORDS.length} row(s) from the sheet.`;
-    populateSemesters();
-    setSelectDisabled(false);
-  } catch (err) {
-    console.error(err);
-    statusMsg.textContent =
-      "Could not load the sheet. Make sure SHEET_ID is set in app.js and the sheet is shared as 'Anyone with the link — Viewer'.";
-  }
-}
-
-// gviz responses wrap JSON in "google.visualization.Query.setResponse(...)"
 function extractGvizJson(text) {
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
@@ -86,7 +86,7 @@ function gvizToRecords(json) {
   const rows = json.table.rows || [];
   return rows.map((r) => {
     const obj = {};
-    r.c.forEach((cell, i) => {
+    (r.c || []).forEach((cell, i) => {
       const key = cols[i];
       if (!key) return;
       obj[key] = cell ? (cell.f ?? cell.v ?? "") : "";
@@ -95,21 +95,64 @@ function gvizToRecords(json) {
   });
 }
 
-function setSelectDisabled(disabled) {
-  [semesterSelect, subjectSelect, teacherSelect, classSelect, weekSelect, topicSelect].forEach(
-    (s) => (s.disabled = disabled)
-  );
+async function fetchTab(gid) {
+  const res = await fetch(gvizUrl(gid));
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const text = await res.text();
+  return gvizToRecords(extractGvizJson(text));
 }
 
 // ---------------------------------------------------------------
-// Cascading dropdown population
-// Chain follows the sheet's logical order:
-// Semester -> Subject -> Teacher -> Class -> Week -> Topic
+// Load everything
 // ---------------------------------------------------------------
-function uniqueValues(records, key) {
-  return [...new Set(records.map((r) => String(r[key] ?? "").trim()).filter(Boolean))];
+async function loadAll() {
+  statusMsg.textContent = "Connecting to Google Sheet…";
+  setControlsDisabled(true);
+  try {
+    const [lessons, subjects, teachers, classes, coordinators, weeks, resources, assessments, topics] =
+      await Promise.all([
+        fetchTab(GIDS.Lessons),
+        fetchTab(GIDS.Subjects),
+        fetchTab(GIDS.Teachers),
+        fetchTab(GIDS.Classes),
+        fetchTab(GIDS.Coordinators),
+        fetchTab(GIDS.Weeks),
+        fetchTab(GIDS.Resources),
+        fetchTab(GIDS.Assessments),
+        fetchTab(GIDS.Topics)
+      ]);
+
+    LESSONS = lessons;
+    LOOKUPS.Subjects = subjects.map((r) => r.Subject).filter(Boolean);
+    LOOKUPS.Teachers = teachers.map((r) => r.Teacher).filter(Boolean);
+    LOOKUPS.Classes = classes.map((r) => r.Class).filter(Boolean);
+    LOOKUPS.Coordinators = coordinators.map((r) => r.Coordinator).filter(Boolean);
+    LOOKUPS.Weeks = weeks; // keep full rows: {Week, WeekStartDate}
+    LOOKUPS.Resources = resources.map((r) => r.ResourceLabel).filter(Boolean);
+    LOOKUPS.Assessments = assessments.map((r) => r.AssessmentLabel).filter(Boolean);
+    LOOKUPS.Topics = topics.map((r) => r.Topic).filter(Boolean);
+
+    populateStaticDropdowns();
+    statusMsg.textContent = `Loaded ${LESSONS.length} lesson row(s) and all lookup tabs.`;
+    setControlsDisabled(false);
+  } catch (err) {
+    console.error(err);
+    statusMsg.textContent =
+      "Could not load the sheet or one of its tabs. Check SHEET_ID, each tab's GID, and sharing permissions.";
+  }
 }
 
+function setControlsDisabled(disabled) {
+  [
+    semesterSelect, subjectSelect, teacherSelect, coordinatorSelect,
+    classSelect, weekSelect, topicInput, objectivesInput, activitiesInput
+  ].forEach((s) => (s.disabled = disabled));
+}
+
+// ---------------------------------------------------------------
+// Populate all dropdowns from lookup tabs (independent, no cascade needed
+// since Subjects/Teachers/Classes/Coordinators are now flat lookup lists)
+// ---------------------------------------------------------------
 function fillSelect(selectEl, values, placeholder) {
   selectEl.innerHTML = `<option value="">${placeholder}</option>`;
   values.forEach((v) => {
@@ -120,97 +163,49 @@ function fillSelect(selectEl, values, placeholder) {
   });
 }
 
-function populateSemesters() {
-  fillSelect(semesterSelect, uniqueValues(RECORDS, COLS.semester), "Select semester");
-  clearDownstream(["subject", "teacher", "class", "week", "topic"]);
+function populateStaticDropdowns() {
+  fillSelect(semesterSelect, ["Semester 1", "Semester 2"], "Select semester");
+  fillSelect(subjectSelect, LOOKUPS.Subjects, "Select subject");
+  fillSelect(teacherSelect, LOOKUPS.Teachers, "Select teacher");
+  fillSelect(coordinatorSelect, LOOKUPS.Coordinators, "Select coordinator");
+  fillSelect(classSelect, LOOKUPS.Classes, "Select class");
+
+  const weekNums = LOOKUPS.Weeks
+    .map((r) => String(r.Week).trim())
+    .filter(Boolean)
+    .sort((a, b) => Number(a) - Number(b));
+  fillSelect(weekSelect, weekNums, "Select week (1–25)");
+
+  topicDatalist.innerHTML = LOOKUPS.Topics.map((t) => `<option value="${escapeHtml(t)}">`).join("");
+
+  renderPicker(resourcesPicker, LOOKUPS.Resources, "res");
+  renderPicker(assessmentsPicker, LOOKUPS.Assessments, "assess");
 }
 
-function populateSubjects() {
-  const sem = semesterSelect.value;
-  const filtered = RECORDS.filter((r) => String(r[COLS.semester]).trim() === sem);
-  fillSelect(subjectSelect, uniqueValues(filtered, COLS.subject), "Select subject");
-  clearDownstream(["teacher", "class", "week", "topic"]);
+// Checkbox-list picker for multi-select Resources / Assessments
+function renderPicker(container, items, prefix) {
+  container.innerHTML = items
+    .map((label, i) => {
+      const id = `${prefix}_${i}`;
+      return `
+      <label class="picker-item" for="${id}">
+        <input type="checkbox" id="${id}" value="${escapeHtml(label)}">
+        <span>${escapeHtml(label)}</span>
+      </label>`;
+    })
+    .join("");
 }
 
-function populateTeachers() {
-  const { sem, subj } = currentFilters();
-  const filtered = RECORDS.filter(
-    (r) => String(r[COLS.semester]).trim() === sem && String(r[COLS.subject]).trim() === subj
-  );
-  fillSelect(teacherSelect, uniqueValues(filtered, COLS.teacher), "Select teacher");
-  clearDownstream(["class", "week", "topic"]);
-}
-
-function populateClasses() {
-  const { sem, subj, teacher } = currentFilters();
-  const filtered = RECORDS.filter(
-    (r) =>
-      String(r[COLS.semester]).trim() === sem &&
-      String(r[COLS.subject]).trim() === subj &&
-      String(r[COLS.teacher]).trim() === teacher
-  );
-  fillSelect(classSelect, uniqueValues(filtered, COLS.class), "Select class");
-  clearDownstream(["week", "topic"]);
-}
-
-function populateWeeks() {
-  const { sem, subj, teacher, cls } = currentFilters();
-  const filtered = RECORDS.filter(
-    (r) =>
-      String(r[COLS.semester]).trim() === sem &&
-      String(r[COLS.subject]).trim() === subj &&
-      String(r[COLS.teacher]).trim() === teacher &&
-      String(r[COLS.class]).trim() === cls
-  );
-  const weeks = uniqueValues(filtered, COLS.week).sort((a, b) => Number(a) - Number(b));
-  fillSelect(weekSelect, weeks, "Select week");
-  clearDownstream(["topic"]);
-}
-
-function populateTopics() {
-  const { sem, subj, teacher, cls, week } = currentFilters();
-  const filtered = RECORDS.filter(
-    (r) =>
-      String(r[COLS.semester]).trim() === sem &&
-      String(r[COLS.subject]).trim() === subj &&
-      String(r[COLS.teacher]).trim() === teacher &&
-      String(r[COLS.class]).trim() === cls &&
-      String(r[COLS.week]).trim() === week
-  );
-  fillSelect(topicSelect, uniqueValues(filtered, COLS.topic), "Select topic");
-}
-
-function clearDownstream(fields) {
-  const map = {
-    subject: subjectSelect,
-    teacher: teacherSelect,
-    class: classSelect,
-    week: weekSelect,
-    topic: topicSelect
-  };
-  fields.forEach((f) => fillSelect(map[f], [], `Select ${f}`));
-  pdfBtn.disabled = true;
-  pngBtn.disabled = true;
-}
-
-function currentFilters() {
-  return {
-    sem: semesterSelect.value,
-    subj: subjectSelect.value,
-    teacher: teacherSelect.value,
-    cls: classSelect.value,
-    week: weekSelect.value,
-    topic: topicSelect.value
-  };
+function getCheckedValues(container) {
+  return [...container.querySelectorAll("input[type=checkbox]:checked")].map((cb) => cb.value);
 }
 
 // ---------------------------------------------------------------
-// Date helpers — compute each teaching day's date from WeekStartDate + Days
+// Date helpers — WeekStartDate now comes from the Weeks lookup tab
 // ---------------------------------------------------------------
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
-function parseWeekStart(value) {
-  // Handles gviz Date(YYYY,M,D) serial strings and plain ISO strings
+function parseSheetDate(value) {
   if (typeof value === "string" && value.startsWith("Date(")) {
     const parts = value.replace("Date(", "").replace(")", "").split(",").map(Number);
     return new Date(parts[0], parts[1], parts[2]);
@@ -219,10 +214,15 @@ function parseWeekStart(value) {
   return isNaN(d) ? null : d;
 }
 
+function getWeekStartDate(weekNum) {
+  const row = LOOKUPS.Weeks.find((r) => String(r.Week).trim() === String(weekNum).trim());
+  return row ? parseSheetDate(row.WeekStartDate) : null;
+}
+
 function dateForWeekday(weekStart, weekdayName) {
   const targetIdx = WEEKDAYS.findIndex((d) => d.toLowerCase() === weekdayName.trim().toLowerCase());
   if (targetIdx < 0 || !weekStart) return null;
-  const mondayIdx = 1; // WeekStartDate is defined as the Monday of that week
+  const mondayIdx = 1;
   const offset = ((targetIdx - mondayIdx) + 7) % 7;
   const d = new Date(weekStart);
   d.setDate(d.getDate() + offset);
@@ -237,67 +237,83 @@ function formatDate(d) {
 }
 
 // ---------------------------------------------------------------
-// Rendering the DLP table
+// Utilities
 // ---------------------------------------------------------------
 function splitToItems(text) {
-  return String(text || "")
-    .split(/\n+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
+  return String(text || "").split(/\n+/).map((s) => s.trim()).filter(Boolean);
 }
-
 function listOrEmpty(items, emptyLabel) {
   if (items.length === 0) return `<p class="empty-note">${emptyLabel}</p>`;
   return `<ul class="cell-list">${items.map((i) => `<li>${escapeHtml(i)}</li>`).join("")}</ul>`;
 }
-
 function escapeHtml(str) {
-  return String(str)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function extractSemesterNumber(semStr) {
+  const m = String(semStr).match(/\d+/);
+  return m ? m[0] : semStr;
+}
+
+// ---------------------------------------------------------------
+// Days for the selected class+subject: look them up from an existing
+// Lessons row if one exists for that Class, else default to Mon/Wed/Fri.
+// You can still hand-edit day names/dates after preview.
+// ---------------------------------------------------------------
+function defaultDaysFor(cls, subj) {
+  const existing = LESSONS.find(
+    (r) => String(r.Class).trim() === cls && String(r.Subject).trim() === subj && r.Days
+  );
+  if (existing) return splitToItems(String(existing.Days).replace(/,/g, "\n"));
+  return ["Monday", "Wednesday", "Friday"];
+}
+
+// ---------------------------------------------------------------
+// Preview rendering
+// ---------------------------------------------------------------
+function currentForm() {
+  return {
+    semester: semesterSelect.value,
+    subject: subjectSelect.value,
+    teacher: teacherSelect.value,
+    coordinator: coordinatorSelect.value,
+    cls: classSelect.value,
+    week: weekSelect.value,
+    topic: topicInput.value.trim(),
+    objectives: objectivesInput.value,
+    activities: activitiesInput.value,
+    resources: getCheckedValues(resourcesPicker),
+    assessments: getCheckedValues(assessmentsPicker)
+  };
 }
 
 function renderPreview() {
-  const { sem, subj, teacher, cls, week, topic } = currentFilters();
-  if (!sem || !subj || !teacher || !cls || !week || !topic) {
-    statusMsg.textContent = "Please select semester, subject, teacher, class, week and topic first.";
+  const f = currentForm();
+  if (!f.semester || !f.subject || !f.teacher || !f.cls || !f.week || !f.topic) {
+    statusMsg.textContent = "Please fill Semester, Subject, Teacher, Class, Week and Topic first.";
     return;
   }
-  const record = RECORDS.find(
-    (r) =>
-      String(r[COLS.semester]).trim() === sem &&
-      String(r[COLS.subject]).trim() === subj &&
-      String(r[COLS.teacher]).trim() === teacher &&
-      String(r[COLS.class]).trim() === cls &&
-      String(r[COLS.week]).trim() === week &&
-      String(r[COLS.topic]).trim() === topic
+
+  el("titleSemester").textContent = `SEMESTER ${extractSemesterNumber(f.semester)}`;
+  el("metaSubject").textContent = f.subject;
+  el("metaClass").textContent = f.cls;
+  el("metaWeek").textContent = f.week;
+  el("signTeacher").textContent = f.teacher || "Teacher Name";
+  el("signCoordinator").textContent = f.coordinator || "Coordinator";
+
+  const weekStart = getWeekStartDate(f.week);
+  const days = defaultDaysFor(f.cls, f.subject);
+
+  const objectives = splitToItems(f.objectives);
+  const activities = splitToItems(f.activities);
+
+  el("dlpBody").innerHTML = buildMergedRows(
+    days, weekStart, f.topic, objectives, activities, f.resources, f.assessments
   );
-  if (!record) {
-    statusMsg.textContent = "Could not find that combination in the sheet.";
-    return;
-  }
 
-  el("titleSemester").textContent = `SEMESTER ${extractSemesterNumber(sem)}`;
-  el("metaSubject").textContent = subj;
-  el("metaClass").textContent = cls;
-  el("metaWeek").textContent = week;
-  el("signTeacher").textContent = record[COLS.teacher] || "Teacher Name";
-  el("signCoordinator").textContent = record[COLS.coordinator] || "Coordinator";
-
-  const weekStart = parseWeekStart(record[COLS.weekStart]);
-  const days = splitToItems(String(record[COLS.days] || "").replace(/,/g, "\n"));
-
-  const objectives = splitToItems(record[COLS.objectives]);
-  const activities = splitToItems(record[COLS.activities]);
-  const resources = splitToItems(record[COLS.resources]);
-  const assessments = splitToItems(record[COLS.assessments]);
-
-  el("dlpBody").innerHTML = buildMergedRows(days, weekStart, topic, objectives, activities, resources, assessments);
-
-  statusMsg.textContent = "Preview generated. You can now download as PDF or PNG.";
+  statusMsg.textContent = "Preview generated. You can now download as PDF or PNG, or save this entry to the sheet.";
   pdfBtn.disabled = false;
   pngBtn.disabled = false;
+  saveEntryBtn.disabled = false;
 }
 
 function buildMergedRows(days, weekStart, topic, objectives, activities, resources, assessments) {
@@ -313,8 +329,8 @@ function buildMergedRows(days, weekStart, topic, objectives, activities, resourc
           <td class="merged-cell" rowspan="${rowspan}">${escapeHtml(topic)}</td>
           <td class="merged-cell" rowspan="${rowspan}">${listOrEmpty(objectives, "No objectives listed.")}</td>
           <td class="merged-cell" rowspan="${rowspan}">${listOrEmpty(activities, "No activities listed.")}</td>
-          <td class="merged-cell" rowspan="${rowspan}">${listOrEmpty(resources, "No resources listed.")}</td>
-          <td class="merged-cell" rowspan="${rowspan}">${listOrEmpty(assessments, "No assessments listed.")}</td>
+          <td class="merged-cell" rowspan="${rowspan}">${listOrEmpty(resources, "No resources selected.")}</td>
+          <td class="merged-cell" rowspan="${rowspan}">${listOrEmpty(assessments, "No assessments selected.")}</td>
         </tr>`;
       }
       return `<tr>${dayCell}</tr>`;
@@ -322,17 +338,11 @@ function buildMergedRows(days, weekStart, topic, objectives, activities, resourc
     .join("");
 }
 
-function extractSemesterNumber(semStr) {
-  const m = String(semStr).match(/\d+/);
-  return m ? m[0] : semStr;
-}
-
 // ---------------------------------------------------------------
 // Export — PDF and PNG via html2canvas
 // ---------------------------------------------------------------
 async function captureCanvas() {
-  const target = el("dlpTable");
-  return await html2canvas(target, { scale: 2.5, backgroundColor: "#ffffff" });
+  return await html2canvas(el("dlpTable"), { scale: 2.5, backgroundColor: "#ffffff" });
 }
 
 async function exportPng() {
@@ -350,12 +360,10 @@ async function exportPdf() {
   const canvas = await captureCanvas();
   const imgData = canvas.toDataURL("image/png");
   const { jsPDF } = window.jspdf;
-
   const pxToMm = 0.264583;
-  const widthMm = canvas.width * pxToMm / 2.5;
-  const heightMm = canvas.height * pxToMm / 2.5;
+  const widthMm = (canvas.width * pxToMm) / 2.5;
+  const heightMm = (canvas.height * pxToMm) / 2.5;
   const orientation = widthMm > heightMm ? "landscape" : "portrait";
-
   const pdf = new jsPDF({ orientation, unit: "mm", format: [widthMm, heightMm] });
   pdf.addImage(imgData, "PNG", 0, 0, widthMm, heightMm);
   pdf.save(buildFileName("pdf"));
@@ -363,22 +371,66 @@ async function exportPdf() {
 }
 
 function buildFileName(ext) {
-  const { subj, cls, week } = currentFilters();
+  const f = currentForm();
   const clean = (s) => String(s).replace(/[^a-z0-9]+/gi, "_");
-  return `DLP_${clean(subj)}_${clean(cls)}_Week${clean(week)}.${ext}`;
+  return `DLP_${clean(f.subject)}_${clean(f.cls)}_Week${clean(f.week)}.${ext}`;
 }
 
 // ---------------------------------------------------------------
-// Event wiring — follows Semester -> Subject -> Teacher -> Class -> Week -> Topic
+// Save entry back to the sheet (Lessons row) + auto-append new Topic
+// Requires APPS_SCRIPT_URL to be configured — see README.
 // ---------------------------------------------------------------
-semesterSelect.addEventListener("change", populateSubjects);
-subjectSelect.addEventListener("change", populateTeachers);
-teacherSelect.addEventListener("change", populateClasses);
-classSelect.addEventListener("change", populateWeeks);
-weekSelect.addEventListener("change", populateTopics);
+async function saveEntry() {
+  const f = currentForm();
+  if (!f.semester || !f.subject || !f.teacher || !f.cls || !f.week || !f.topic) {
+    statusMsg.textContent = "Fill in the form and click Preview before saving.";
+    return;
+  }
+  if (APPS_SCRIPT_URL.includes("PASTE_")) {
+    statusMsg.textContent = "Saving is not configured yet — set APPS_SCRIPT_URL in app.js (see README).";
+    return;
+  }
+
+  const days = defaultDaysFor(f.cls, f.subject);
+  const payload = {
+    Semester: f.semester,
+    Subject: f.subject,
+    Teacher: f.teacher,
+    Coordinator: f.coordinator,
+    Week: f.week,
+    Class: f.cls,
+    Days: days.join(", "),
+    Topic: f.topic,
+    Objectives: f.objectives,
+    Activities: f.activities,
+    Resources: f.resources.join(", "),
+    Assessments: f.assessments.join(", ")
+  };
+
+  statusMsg.textContent = "Saving entry to sheet…";
+  try {
+    await fetch(APPS_SCRIPT_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(payload)
+    });
+    statusMsg.textContent = "Saved. Reloading sheet data…";
+    if (!LOOKUPS.Topics.includes(f.topic)) LOOKUPS.Topics.push(f.topic);
+    topicDatalist.innerHTML = LOOKUPS.Topics.map((t) => `<option value="${escapeHtml(t)}">`).join("");
+    await loadAll();
+  } catch (err) {
+    console.error(err);
+    statusMsg.textContent = "Save failed — check the Apps Script deployment URL and permissions.";
+  }
+}
+
+// ---------------------------------------------------------------
+// Event wiring
+// ---------------------------------------------------------------
 previewBtn.addEventListener("click", renderPreview);
 pdfBtn.addEventListener("click", exportPdf);
 pngBtn.addEventListener("click", exportPng);
-reloadBtn.addEventListener("click", loadSheet);
+reloadBtn.addEventListener("click", loadAll);
+saveEntryBtn.addEventListener("click", saveEntry);
 
-loadSheet();
+loadAll();
